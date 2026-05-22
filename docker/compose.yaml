@@ -1,0 +1,15 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.9
+    container_name: pacefinder-jellyfin
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./jellyfin-config:/config
+      - ./jellyfin-cache:/cache
+      - ../testlib:/media:ro
+    environment:
+      - JELLYFIN_PublishedServerUrl=http://127.0.0.1:8096
+      - TZ=${TZ:-UTC}
+    restart: unless-stopped
