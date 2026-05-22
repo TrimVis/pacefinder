@@ -3,13 +3,12 @@
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 use walkdir::WalkDir;
-
-use tokio::fs;
 
 use crate::matcher::{ParsedFile, normalize_arc};
 use crate::model::ImageKind;
@@ -27,7 +26,7 @@ pub struct Options {
     pub refresh: bool,
 }
 
-pub async fn run(root: &Path, opts: Options) -> Result<()> {
+pub fn run(root: &Path, opts: Options) -> Result<()> {
     let root = root
         .canonicalize()
         .with_context(|| format!("resolving {}", root.display()))?;
@@ -48,12 +47,11 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         return Ok(());
     }
 
-    if let Some(series) = source.series().await.context("fetching series metadata")? {
+    if let Some(series) = source.series().context("fetching series metadata")? {
         let series_path = root.join("tvshow.nfo");
-        write(opts.dry_run, &series_path, "tvshow.nfo", || async {
-            writer::write_series(&series_path, &series).await
-        })
-        .await?;
+        write(opts.dry_run, &series_path, "tvshow.nfo", || {
+            writer::write_series(&series_path, &series)
+        })?;
 
         let series_poster_path = root.join("poster.png");
         fetch_image(
@@ -62,8 +60,7 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
             ImageKind::SeriesPoster,
             &series_poster_path,
             "poster.png",
-        )
-        .await?;
+        )?;
     } else {
         warn!("no series-level metadata from any data source");
     }
@@ -76,7 +73,6 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         let arc_norm = normalize_arc(&parsed.arc);
         let Some(episode) = source
             .episode(&arc_norm, parsed.episode)
-            .await
             .with_context(|| format!("fetching episode for {}", media_path.display()))?
         else {
             warn!(
@@ -90,11 +86,14 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         };
 
         let nfo_path = media_path.with_extension("nfo");
-        let label = format!("S{season:02}E{number:02}", season = episode.season, number = episode.number);
-        write(opts.dry_run, &nfo_path, &label, || async {
-            writer::write_episode(&nfo_path, &episode).await
-        })
-        .await?;
+        let label = format!(
+            "S{season:02}E{number:02}",
+            season = episode.season,
+            number = episode.number
+        );
+        write(opts.dry_run, &nfo_path, &label, || {
+            writer::write_episode(&nfo_path, &episode)
+        })?;
         episodes_written += 1;
 
         if let Some(parent) = media_path.parent()
@@ -109,7 +108,6 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
     for (season_num, folder) in &arc_folders {
         let Some(season) = source
             .season(*season_num)
-            .await
             .with_context(|| format!("fetching season {season_num}"))?
         else {
             warn!(season = season_num, "no season metadata available");
@@ -117,10 +115,9 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         };
         let nfo_path = folder.join("season.nfo");
         let label = format!("season.nfo (S{season_num:02})");
-        write(opts.dry_run, &nfo_path, &label, || async {
-            writer::write_season(&nfo_path, &season).await
-        })
-        .await?;
+        write(opts.dry_run, &nfo_path, &label, || {
+            writer::write_season(&nfo_path, &season)
+        })?;
 
         let poster_path = folder.join("poster.png");
         let label = format!("poster.png (S{season_num:02})");
@@ -132,8 +129,7 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
             },
             &poster_path,
             &label,
-        )
-        .await?;
+        )?;
     }
 
     info!(
@@ -166,7 +162,7 @@ fn collect_matched(root: &Path) -> Vec<(PathBuf, ParsedFile)> {
     out
 }
 
-async fn fetch_image(
+fn fetch_image(
     dry_run: bool,
     source: &dyn DataSource,
     kind: ImageKind,
@@ -175,7 +171,6 @@ async fn fetch_image(
 ) -> Result<()> {
     let Some(bytes) = source
         .image(kind)
-        .await
         .with_context(|| format!("fetching {label}"))?
     else {
         warn!(image = %label, "no image available from source");
@@ -187,25 +182,21 @@ async fn fetch_image(
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .await
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    fs::write(path, &bytes)
-        .await
-        .with_context(|| format!("writing {}", path.display()))?;
+    fs::write(path, &bytes).with_context(|| format!("writing {}", path.display()))?;
     info!(path = %path.display(), bytes = bytes.len(), "wrote {label}");
     Ok(())
 }
 
-async fn write<F, Fut>(dry_run: bool, path: &Path, label: &str, op: F) -> Result<()>
+fn write<F>(dry_run: bool, path: &Path, label: &str, op: F) -> Result<()>
 where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
+    F: FnOnce() -> Result<()>,
 {
     if dry_run {
         info!(would_write = %path.display(), "[dry-run] {label}");
         Ok(())
     } else {
-        op().await
+        op()
     }
 }

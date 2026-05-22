@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use tracing::warn;
 
 use super::DataSource;
@@ -24,15 +23,14 @@ impl Composite {
     }
 }
 
-#[async_trait]
 impl DataSource for Composite {
     fn name(&self) -> &'static str {
         "composite"
     }
 
-    async fn series(&self) -> Result<Option<Series>> {
+    fn series(&self) -> Result<Option<Series>> {
         for s in &self.sources {
-            match s.series().await {
+            match s.series() {
                 Ok(Some(v)) => return Ok(Some(v)),
                 Ok(None) => continue,
                 Err(e) => warn!(source = s.name(), error = %e, "series fetch failed"),
@@ -41,9 +39,9 @@ impl DataSource for Composite {
         Ok(None)
     }
 
-    async fn season(&self, number: u32) -> Result<Option<Season>> {
+    fn season(&self, number: u32) -> Result<Option<Season>> {
         for s in &self.sources {
-            match s.season(number).await {
+            match s.season(number) {
                 Ok(Some(v)) => return Ok(Some(v)),
                 Ok(None) => continue,
                 Err(e) => warn!(source = s.name(), %number, error = %e, "season fetch failed"),
@@ -52,9 +50,9 @@ impl DataSource for Composite {
         Ok(None)
     }
 
-    async fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
+    fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
         for s in &self.sources {
-            match s.episode(arc_normalized, episode_number).await {
+            match s.episode(arc_normalized, episode_number) {
                 Ok(Some(v)) => return Ok(Some(v)),
                 Ok(None) => continue,
                 Err(e) => warn!(
@@ -69,9 +67,9 @@ impl DataSource for Composite {
         Ok(None)
     }
 
-    async fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
+    fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
         for s in &self.sources {
-            match s.image(kind).await {
+            match s.image(kind) {
                 Ok(Some(v)) => return Ok(Some(v)),
                 Ok(None) => continue,
                 Err(e) => warn!(source = s.name(), error = %e, "image fetch failed"),

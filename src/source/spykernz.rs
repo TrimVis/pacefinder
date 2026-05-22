@@ -4,14 +4,11 @@
 //! API call, then resolves individual files by raw URL through [`CachedHttp`].
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use anyhow::{Context, Result, anyhow};
-use async_trait::async_trait;
 use regex_lite::Regex;
 use serde::Deserialize;
-use std::sync::LazyLock;
-use tokio::sync::OnceCell;
 use tracing::{debug, warn};
 
 use super::DataSource;
@@ -26,59 +23,59 @@ const RAW_BASE: &str = "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-
 
 pub struct SpykerNz {
     http: Arc<CachedHttp>,
-    index: OnceCell<Arc<Index>>,
-    series: OnceCell<Arc<Series>>,
+    index: OnceLock<Arc<Index>>,
+    series: OnceLock<Arc<Series>>,
 }
 
 impl SpykerNz {
     pub fn new(http: Arc<CachedHttp>) -> Self {
         Self {
             http,
-            index: OnceCell::new(),
-            series: OnceCell::new(),
+            index: OnceLock::new(),
+            series: OnceLock::new(),
         }
     }
 
-    async fn ensure_index(&self) -> Result<Arc<Index>> {
-        self.index
-            .get_or_try_init(|| async {
-                let json = self.http.get_string(TREE_URL).await?;
-                let tree: GitHubTree =
-                    serde_json::from_str(&json).context("parsing tree response")?;
-                if tree.truncated {
-                    warn!("github tree response truncated — index may be incomplete");
-                }
-                Ok(Arc::new(build_index(&tree.tree)))
-            })
-            .await
-            .cloned()
+    fn ensure_index(&self) -> Result<Arc<Index>> {
+        if let Some(idx) = self.index.get() {
+            return Ok(Arc::clone(idx));
+        }
+        let json = self.http.get_string(TREE_URL)?;
+        let tree: GitHubTree =
+            serde_json::from_str(&json).context("parsing tree response")?;
+        if tree.truncated {
+            warn!("github tree response truncated — index may be incomplete");
+        }
+        let idx = Arc::new(build_index(&tree.tree));
+        // Race-tolerant: if another thread won, discard ours.
+        let _ = self.index.set(Arc::clone(&idx));
+        Ok(Arc::clone(self.index.get().expect("just set")))
     }
 
-    async fn cached_series(&self) -> Result<Arc<Series>> {
-        self.series
-            .get_or_try_init(|| async {
-                let series = self.fetch_series().await?;
-                Ok(Arc::new(series))
-            })
-            .await
-            .cloned()
+    fn cached_series(&self) -> Result<Arc<Series>> {
+        if let Some(s) = self.series.get() {
+            return Ok(Arc::clone(s));
+        }
+        let s = Arc::new(self.fetch_series()?);
+        let _ = self.series.set(Arc::clone(&s));
+        Ok(Arc::clone(self.series.get().expect("just set")))
     }
 
-    async fn fetch_series(&self) -> Result<Series> {
-        let index = self.ensure_index().await?;
+    fn fetch_series(&self) -> Result<Series> {
+        let index = self.ensure_index()?;
         let path = index
             .series_nfo
             .as_deref()
             .ok_or_else(|| anyhow!("series tvshow.nfo not in SpykerNZ index"))?;
-        let xml = self.http.get_string(&raw_url(path)).await?;
+        let xml = self.http.get_string(&raw_url(path))?;
         Ok(kodi::parse_tvshow(&xml)?.into())
     }
 
     /// Look up the season number for a normalized arc name. Tries the name
     /// as-is first, then a small set of known spelling aliases (the user
     /// community uses both "Whiskey Peak" and "Whisky Peak", for example).
-    async fn season_for_arc(&self, arc_norm: &str) -> Result<Option<u32>> {
-        let series = self.cached_series().await?;
+    fn season_for_arc(&self, arc_norm: &str) -> Result<Option<u32>> {
+        let series = self.cached_series()?;
         let lookup = |needle: &str| -> Option<u32> {
             series
                 .named_seasons
@@ -120,35 +117,34 @@ fn encode_path(path: &str) -> String {
     path.replace(' ', "%20")
 }
 
-#[async_trait]
 impl DataSource for SpykerNz {
     fn name(&self) -> &'static str {
         "SpykerNZ"
     }
 
-    async fn series(&self) -> Result<Option<Series>> {
-        let arc = self.cached_series().await?;
+    fn series(&self) -> Result<Option<Series>> {
+        let arc = self.cached_series()?;
         Ok(Some((*arc).clone()))
     }
 
-    async fn season(&self, number: u32) -> Result<Option<Season>> {
-        let index = self.ensure_index().await?;
+    fn season(&self, number: u32) -> Result<Option<Season>> {
+        let index = self.ensure_index()?;
         let Some(season) = index.seasons.get(&number) else {
             return Ok(None);
         };
         let Some(nfo_path) = season.season_nfo.as_deref() else {
             return Ok(None);
         };
-        let xml = self.http.get_string(&raw_url(nfo_path)).await?;
+        let xml = self.http.get_string(&raw_url(nfo_path))?;
         Ok(Some(kodi::parse_season(&xml)?.into()))
     }
 
-    async fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
-        let Some(season_num) = self.season_for_arc(arc_normalized).await? else {
+    fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
+        let Some(season_num) = self.season_for_arc(arc_normalized)? else {
             debug!(arc = %arc_normalized, "no SpykerNZ season for arc");
             return Ok(None);
         };
-        let index = self.ensure_index().await?;
+        let index = self.ensure_index()?;
         let Some(season) = index.seasons.get(&season_num) else {
             return Ok(None);
         };
@@ -160,12 +156,12 @@ impl DataSource for SpykerNz {
             );
             return Ok(None);
         };
-        let xml = self.http.get_string(&raw_url(nfo_path)).await?;
+        let xml = self.http.get_string(&raw_url(nfo_path))?;
         Ok(Some(kodi::parse_episode(&xml)?.into()))
     }
 
-    async fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
-        let index = self.ensure_index().await?;
+    fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
+        let index = self.ensure_index()?;
         let path = match kind {
             ImageKind::SeriesPoster => index.series_poster.clone(),
             ImageKind::SeasonPoster { number } => index
@@ -176,7 +172,7 @@ impl DataSource for SpykerNz {
         let Some(path) = path else {
             return Ok(None);
         };
-        let bytes = self.http.get_bytes(&raw_url(&path)).await?;
+        let bytes = self.http.get_bytes(&raw_url(&path))?;
         Ok(Some(bytes))
     }
 }

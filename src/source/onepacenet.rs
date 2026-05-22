@@ -10,14 +10,12 @@
 //! chapter range). It does NOT have per-episode titles/plots or poster
 //! images — those still come from SpykerNZ via the composite source.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use anyhow::{Context, Result, anyhow, bail};
-use async_trait::async_trait;
 use regex_lite::Regex;
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::sync::OnceCell;
 use tracing::debug;
 
 use super::DataSource;
@@ -28,7 +26,7 @@ const WATCH_URL: &str = "https://onepace.net/watch";
 
 pub struct OnepaceNet {
     http: Arc<CachedHttp>,
-    timeline: OnceCell<Arc<Timeline>>,
+    timeline: OnceLock<Arc<Timeline>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,25 +49,24 @@ impl OnepaceNet {
     pub fn new(http: Arc<CachedHttp>) -> Self {
         Self {
             http,
-            timeline: OnceCell::new(),
+            timeline: OnceLock::new(),
         }
     }
 
-    async fn ensure_timeline(&self) -> Result<Arc<Timeline>> {
-        self.timeline
-            .get_or_try_init(|| async {
-                let body = fetch_rsc(&self.http).await?;
-                let segments = extract_segments(&body)?;
-                Ok(Arc::new(build_timeline(segments)))
-            })
-            .await
-            .cloned()
+    fn ensure_timeline(&self) -> Result<Arc<Timeline>> {
+        if let Some(tl) = self.timeline.get() {
+            return Ok(Arc::clone(tl));
+        }
+        let body = fetch_rsc(&self.http)?;
+        let segments = extract_segments(&body)?;
+        let tl = Arc::new(build_timeline(segments));
+        let _ = self.timeline.set(Arc::clone(&tl));
+        Ok(Arc::clone(self.timeline.get().expect("just set")))
     }
 }
 
-async fn fetch_rsc(http: &CachedHttp) -> Result<String> {
+fn fetch_rsc(http: &CachedHttp) -> Result<String> {
     http.get_string_with_header(WATCH_URL, "RSC", "1")
-        .await
         .context("fetching onepace.net /watch RSC payload")
 }
 
@@ -130,20 +127,19 @@ fn build_timeline(segments: Vec<Segment>) -> Timeline {
     }
 }
 
-#[async_trait]
 impl DataSource for OnepaceNet {
     fn name(&self) -> &'static str {
         "onepace.net"
     }
 
-    async fn series(&self) -> Result<Option<Series>> {
+    fn series(&self) -> Result<Option<Series>> {
         // onepace.net has no series-level entry; the composite falls
         // through to a source that does (SpykerNZ).
         Ok(None)
     }
 
-    async fn season(&self, number: u32) -> Result<Option<Season>> {
-        let timeline = self.ensure_timeline().await?;
+    fn season(&self, number: u32) -> Result<Option<Season>> {
+        let timeline = self.ensure_timeline()?;
         let Some((_, seg)) = timeline
             .seasons_by_number
             .iter()
@@ -158,7 +154,7 @@ impl DataSource for OnepaceNet {
         }))
     }
 
-    async fn episode(
+    fn episode(
         &self,
         _arc_normalized: &str,
         _episode_number: u32,
@@ -168,7 +164,7 @@ impl DataSource for OnepaceNet {
         Ok(None)
     }
 
-    async fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
+    fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
         // Site provides backdrops but no clean per-season "poster" image.
         // Leave images to other sources for now.
         debug!(?kind, "onepace.net does not expose poster images");

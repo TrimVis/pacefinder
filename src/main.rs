@@ -13,8 +13,7 @@ use cli::{Cli, Command};
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let args = Cli::parse();
 
     let filter = EnvFilter::try_new(&args.log).unwrap_or_else(|_| EnvFilter::new("info"));
@@ -29,31 +28,25 @@ async fn main() -> Result<()> {
             path,
             series_folder,
             dry_run,
-        } => {
-            reorder::run(
-                &path,
-                reorder::Options {
-                    dry_run,
-                    series_folder,
-                },
-            )
-            .await
-        }
+        } => reorder::run(
+            &path,
+            reorder::Options {
+                dry_run,
+                series_folder,
+            },
+        ),
         Command::Generate {
             path,
             dry_run,
             cache_ttl_hours,
             refresh,
-        } => {
-            generate::run(
-                &path,
-                generate::Options {
-                    dry_run,
-                    cache_ttl: Duration::from_secs(cache_ttl_hours * 3600),
-                    refresh,
-                },
-            )
-            .await
-        }
+        } => generate::run(
+            &path,
+            generate::Options {
+                dry_run,
+                cache_ttl: Duration::from_secs(cache_ttl_hours * 3600),
+                refresh,
+            },
+        ),
     }
 }

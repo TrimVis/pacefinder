@@ -7,11 +7,11 @@
 
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
-use reqwest::Client;
+use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::fs;
 use tracing::{debug, trace};
 
 pub struct CachedHttp {
@@ -26,7 +26,7 @@ impl CachedHttp {
         let dirs = ProjectDirs::from("net", "PaceFinder", "pacefinder")
             .context("resolving project dirs")?;
         let cache_dir = dirs.cache_dir().join("http");
-        std::fs::create_dir_all(&cache_dir)
+        fs::create_dir_all(&cache_dir)
             .with_context(|| format!("creating cache dir {}", cache_dir.display()))?;
         let client = Client::builder()
             .user_agent(concat!("pacefinder/", env!("CARGO_PKG_VERSION")))
@@ -46,27 +46,21 @@ impl CachedHttp {
         self
     }
 
-    pub async fn get_string_with_header(
-        &self,
-        url: &str,
-        name: &str,
-        value: &str,
-    ) -> Result<String> {
-        let bytes = self.get_bytes_with(url, &[(name, value)]).await?;
+    pub fn get_string_with_header(&self, url: &str, name: &str, value: &str) -> Result<String> {
+        let bytes = self.get_bytes_with(url, &[(name, value)])?;
         String::from_utf8(bytes).context("response body not utf-8")
     }
 
-    pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        self.get_bytes_with(url, &[]).await
+    pub fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        self.get_bytes_with(url, &[])
     }
 
-    async fn get_bytes_with(&self, url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
+    fn get_bytes_with(&self, url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
         let path = self.path_for_keyed(url, headers);
 
-        if !self.refresh && self.is_fresh(&path).await {
+        if !self.refresh && self.is_fresh(&path) {
             trace!(%url, "cache hit");
             return fs::read(&path)
-                .await
                 .with_context(|| format!("reading cache {}", path.display()));
         }
 
@@ -77,27 +71,24 @@ impl CachedHttp {
         }
         let resp = req
             .send()
-            .await
             .with_context(|| format!("GET {url}"))?
             .error_for_status()
             .with_context(|| format!("status for {url}"))?;
         let bytes = resp
             .bytes()
-            .await
             .with_context(|| format!("body for {url}"))?;
         fs::write(&path, &bytes)
-            .await
             .with_context(|| format!("writing cache {}", path.display()))?;
         Ok(bytes.to_vec())
     }
 
-    pub async fn get_string(&self, url: &str) -> Result<String> {
-        let bytes = self.get_bytes(url).await?;
+    pub fn get_string(&self, url: &str) -> Result<String> {
+        let bytes = self.get_bytes(url)?;
         String::from_utf8(bytes).context("response body not utf-8")
     }
 
-    async fn is_fresh(&self, path: &Path) -> bool {
-        let Ok(meta) = fs::metadata(path).await else {
+    fn is_fresh(&self, path: &Path) -> bool {
+        let Ok(meta) = fs::metadata(path) else {
             return false;
         };
         let Ok(modified) = meta.modified() else {

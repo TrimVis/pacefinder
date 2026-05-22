@@ -6,7 +6,6 @@
 //! in this module or in external crates that implement the trait.
 
 use anyhow::Result;
-use async_trait::async_trait;
 
 use crate::model::{Episode, ImageKind, Season, Series};
 
@@ -15,23 +14,22 @@ pub mod composite;
 pub mod onepacenet;
 pub mod spykernz;
 
-#[async_trait]
 pub trait DataSource: Send + Sync {
     /// Human-readable adapter name, useful in logs.
     fn name(&self) -> &'static str;
 
     /// Series-level metadata (titles, plot, named-season map). Returns
     /// `Ok(None)` if this source has no series-level info.
-    async fn series(&self) -> Result<Option<Series>>;
+    fn series(&self) -> Result<Option<Series>>;
 
     /// Per-season metadata. Returns `Ok(None)` if the source has no record
     /// of the requested season number.
-    async fn season(&self, number: u32) -> Result<Option<Season>>;
+    fn season(&self, number: u32) -> Result<Option<Season>>;
 
     /// Episode metadata keyed by normalized arc name + 1-based episode number.
     /// Returns `Ok(None)` if the source has no record of that episode.
-    async fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>>;
+    fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>>;
 
     /// Image bytes for the given kind, if available.
-    async fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>>;
+    fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>>;
 }

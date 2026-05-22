@@ -6,8 +6,8 @@
 //! inspecting every episode's chapter range and is left for a later pass.
 
 use anyhow::{Context, Result};
+use std::fs;
 use std::path::{Path, PathBuf};
-use tokio::fs;
 use tracing::{info, warn};
 
 use crate::matcher::{ParsedFile, is_arc_folder_name};
@@ -17,7 +17,7 @@ pub struct Options {
     pub series_folder: String,
 }
 
-pub async fn run(root: &Path, opts: Options) -> Result<()> {
+pub fn run(root: &Path, opts: Options) -> Result<()> {
     let root = root
         .canonicalize()
         .with_context(|| format!("resolving {}", root.display()))?;
@@ -31,13 +31,13 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
 
     let mut to_move: Vec<PathBuf> = Vec::new();
     let mut loose_files = 0usize;
-    let mut entries = fs::read_dir(&root).await?;
-    while let Some(entry) = entries.next_entry().await? {
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let ft = entry.file_type().await?;
+        let ft = entry.file_type()?;
 
         if ft.is_dir() {
             if name == opts.series_folder {
@@ -66,7 +66,6 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
 
     if !opts.dry_run {
         fs::create_dir_all(&target)
-            .await
             .with_context(|| format!("creating {}", target.display()))?;
     }
 
@@ -84,7 +83,6 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
             info!(would_move = %source.display(), to = %dest.display(), "[dry-run]");
         } else {
             fs::rename(source, &dest)
-                .await
                 .with_context(|| format!("moving {} -> {}", source.display(), dest.display()))?;
             info!(from = %source.display(), to = %dest.display(), "moved");
         }
