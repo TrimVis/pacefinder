@@ -1,0 +1,23 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Docker test harness state
+/docker/jellyfin-config/
+/docker/jellyfin-cache/
+/testlib/
+
+# Local cache used by integration tests / dev runs
+.cache/
+fixtures/.downloaded/
+
+# Env
+.env
+.env.local
