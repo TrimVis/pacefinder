@@ -21,6 +21,32 @@ pub struct CachedHttp {
     refresh: bool,
 }
 
+/// On-disk location of the HTTP cache, independent of whether a
+/// [`CachedHttp`] has ever been constructed. Used by the `cache` subcommand.
+pub fn cache_dir() -> Result<PathBuf> {
+    let dirs = ProjectDirs::from("net", "PaceFinder", "pacefinder")
+        .context("resolving project dirs")?;
+    Ok(dirs.cache_dir().join("http"))
+}
+
+/// Delete every cached body. The directory itself is left in place.
+pub fn clear() -> Result<()> {
+    let dir = cache_dir()?;
+    if !dir.exists() {
+        return Ok(());
+    }
+    let mut removed = 0usize;
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            fs::remove_file(entry.path())?;
+            removed += 1;
+        }
+    }
+    tracing::info!(dir = %dir.display(), removed, "cleared cache");
+    Ok(())
+}
+
 impl CachedHttp {
     pub fn new(ttl: Duration) -> Result<Self> {
         let dirs = ProjectDirs::from("net", "PaceFinder", "pacefinder")

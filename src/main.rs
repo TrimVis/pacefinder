@@ -9,7 +9,7 @@ mod source;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Command};
+use cli::{CacheAction, Cli, Command};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
@@ -35,6 +35,13 @@ fn main() -> Result<()> {
             println!("pacefinder {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+        Command::Cache { action } => match action {
+            CacheAction::Path => {
+                println!("{}", source::cache::cache_dir()?.display());
+                Ok(())
+            }
+            CacheAction::Clear => source::cache::clear(),
+        },
         Command::Scan { path } => scan::run(&path),
         Command::Reorder {
             path,

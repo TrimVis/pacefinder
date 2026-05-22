@@ -72,8 +72,21 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Inspect or clear the on-disk HTTP cache
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
     /// Print version and exit
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CacheAction {
+    /// Print the on-disk cache location.
+    Path,
+    /// Delete all cached HTTP responses.
+    Clear,
 }
 
 fn parse_humantime(s: &str) -> Result<Duration, String> {
