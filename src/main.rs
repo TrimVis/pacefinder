@@ -29,7 +29,16 @@ async fn main() -> Result<()> {
             path,
             series_folder,
             dry_run,
-        } => reorder::run(&path, reorder::Options { dry_run, series_folder }).await,
+        } => {
+            reorder::run(
+                &path,
+                reorder::Options {
+                    dry_run,
+                    series_folder,
+                },
+            )
+            .await
+        }
         Command::Generate {
             path,
             dry_run,

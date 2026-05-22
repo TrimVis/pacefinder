@@ -22,8 +22,7 @@ use crate::nfo::kodi;
 
 const TREE_URL: &str =
     "https://api.github.com/repos/SpykerNZ/one-pace-for-plex/git/trees/main?recursive=1";
-const RAW_BASE: &str =
-    "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/";
+const RAW_BASE: &str = "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/";
 
 pub struct SpykerNz {
     http: Arc<CachedHttp>,
@@ -84,7 +83,7 @@ impl SpykerNz {
             series
                 .named_seasons
                 .iter()
-                .find(|ns| normalize_arc(&strip_leading_number(&ns.name)) == needle)
+                .find(|ns| normalize_arc(strip_leading_number(&ns.name)) == needle)
                 .map(|ns| ns.number)
         };
         if let Some(num) = lookup(arc_norm) {
@@ -99,7 +98,7 @@ impl SpykerNz {
 
 fn strip_leading_number(name: &str) -> &str {
     // SpykerNZ stores arc names like "1. Romance Dawn"; users see "Romance Dawn".
-    name.split_once(". ").map(|(_, rest)| rest).unwrap_or(name)
+    name.split_once(". ").map_or(name, |(_, rest)| rest)
 }
 
 /// Map a user-side arc name (normalized) to the SpykerNZ canonical spelling
@@ -144,11 +143,7 @@ impl DataSource for SpykerNz {
         Ok(Some(kodi::parse_season(&xml)?.into()))
     }
 
-    async fn episode(
-        &self,
-        arc_normalized: &str,
-        episode_number: u32,
-    ) -> Result<Option<Episode>> {
+    async fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
         let Some(season_num) = self.season_for_arc(arc_normalized).await? else {
             debug!(arc = %arc_normalized, "no SpykerNZ season for arc");
             return Ok(None);
@@ -274,7 +269,9 @@ mod tests {
             entry("One Pace/season01-poster.png"),
             entry("One Pace/season02-poster.png"),
             entry("One Pace/Season 1/season.nfo"),
-            entry("One Pace/Season 1/One Pace - S01E01 - Romance Dawn, the Dawn of an Adventure.nfo"),
+            entry(
+                "One Pace/Season 1/One Pace - S01E01 - Romance Dawn, the Dawn of an Adventure.nfo",
+            ),
             entry("One Pace/Season 1/One Pace - S01E02 - They Call Him 'Straw Hat' Luffy.nfo"),
             entry("One Pace/Season 2/season.nfo"),
             entry("README.md"),
@@ -293,7 +290,10 @@ mod tests {
 
         let s2 = idx.seasons.get(&2).unwrap();
         assert!(s2.season_nfo.is_some());
-        assert_eq!(s2.season_poster.as_deref(), Some("One Pace/season02-poster.png"));
+        assert_eq!(
+            s2.season_poster.as_deref(),
+            Some("One Pace/season02-poster.png")
+        );
         assert!(s2.episodes.is_empty());
     }
 

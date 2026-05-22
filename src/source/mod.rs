@@ -1,4 +1,3 @@
-#![allow(dead_code)] // `name()` is intentionally kept for future logging
 //! Pluggable metadata data sources.
 //!
 //! A `DataSource` knows how to answer queries about One Pace's series,
@@ -31,11 +30,7 @@ pub trait DataSource: Send + Sync {
 
     /// Episode metadata keyed by normalized arc name + 1-based episode number.
     /// Returns `Ok(None)` if the source has no record of that episode.
-    async fn episode(
-        &self,
-        arc_normalized: &str,
-        episode_number: u32,
-    ) -> Result<Option<Episode>>;
+    async fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>>;
 
     /// Image bytes for the given kind, if available.
     async fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>>;

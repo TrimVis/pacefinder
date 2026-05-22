@@ -83,9 +83,9 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         if opts.dry_run {
             info!(would_move = %source.display(), to = %dest.display(), "[dry-run]");
         } else {
-            fs::rename(source, &dest).await.with_context(|| {
-                format!("moving {} -> {}", source.display(), dest.display())
-            })?;
+            fs::rename(source, &dest)
+                .await
+                .with_context(|| format!("moving {} -> {}", source.display(), dest.display()))?;
             info!(from = %source.display(), to = %dest.display(), "moved");
         }
         moved += 1;

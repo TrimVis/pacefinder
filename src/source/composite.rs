@@ -52,11 +52,7 @@ impl DataSource for Composite {
         Ok(None)
     }
 
-    async fn episode(
-        &self,
-        arc_normalized: &str,
-        episode_number: u32,
-    ) -> Result<Option<Episode>> {
+    async fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
         for s in &self.sources {
             match s.episode(arc_normalized, episode_number).await {
                 Ok(Some(v)) => return Ok(Some(v)),

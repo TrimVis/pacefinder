@@ -134,10 +134,8 @@ mod tests {
 
     #[test]
     fn parses_canonical_episode_filename() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv",
-        )
-        .unwrap();
+        let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv")
+            .unwrap();
         assert_eq!(p.arc, "Romance Dawn");
         assert_eq!(p.episode, 1);
         assert_eq!(p.chapter_range, "1");
@@ -148,10 +146,8 @@ mod tests {
 
     #[test]
     fn parses_chapter_range() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][2-3] Romance Dawn 02 [1080p][ABCD1234].mkv",
-        )
-        .unwrap();
+        let p = ParsedFile::from_filename("[One Pace][2-3] Romance Dawn 02 [1080p][ABCD1234].mkv")
+            .unwrap();
         assert_eq!(p.chapter_range, "2-3");
         assert_eq!(p.episode, 2);
     }
@@ -168,20 +164,15 @@ mod tests {
 
     #[test]
     fn parses_filename_without_crc() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][1] Romance Dawn 01 [1080p].mkv",
-        )
-        .unwrap();
+        let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p].mkv").unwrap();
         assert_eq!(p.crc32, None);
         assert_eq!(p.episode, 1);
     }
 
     #[test]
     fn parses_uppercase_crc_consistently() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv",
-        )
-        .unwrap();
+        let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv")
+            .unwrap();
         assert_eq!(p.crc32.as_deref(), Some("D767799C"));
     }
 
@@ -192,10 +183,8 @@ mod tests {
 
     #[test]
     fn parses_multi_chapter_range_with_comma() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][42,22] Gaimon 01 [1080p][0C2DBF75].mkv",
-        )
-        .unwrap();
+        let p =
+            ParsedFile::from_filename("[One Pace][42,22] Gaimon 01 [1080p][0C2DBF75].mkv").unwrap();
         assert_eq!(p.chapter_range, "42,22");
         assert_eq!(p.arc, "Gaimon");
         assert_eq!(p.episode, 1);

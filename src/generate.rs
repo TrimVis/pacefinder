@@ -91,19 +91,19 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         };
 
         let nfo_path = media_path.with_extension("nfo");
-        let label = format!("S{:02}E{:02}", episode.season, episode.number);
+        let label = format!("S{season:02}E{number:02}", season = episode.season, number = episode.number);
         write(opts.dry_run, &nfo_path, &label, || async {
             writer::write_episode(&nfo_path, &episode).await
         })
         .await?;
         episodes_written += 1;
 
-        if let Some(parent) = media_path.parent() {
-            if parent != root {
-                arc_folders
-                    .entry(episode.season)
-                    .or_insert_with(|| parent.to_path_buf());
-            }
+        if let Some(parent) = media_path.parent()
+            && parent != root
+        {
+            arc_folders
+                .entry(episode.season)
+                .or_insert_with(|| parent.to_path_buf());
         }
     }
 
@@ -117,18 +117,20 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
             continue;
         };
         let nfo_path = folder.join("season.nfo");
-        let label = format!("season.nfo (S{:02})", season_num);
+        let label = format!("season.nfo (S{season_num:02})");
         write(opts.dry_run, &nfo_path, &label, || async {
             writer::write_season(&nfo_path, &season).await
         })
         .await?;
 
         let poster_path = folder.join("poster.png");
-        let label = format!("poster.png (S{:02})", season_num);
+        let label = format!("poster.png (S{season_num:02})");
         fetch_image(
             opts.dry_run,
             source.as_ref(),
-            ImageKind::SeasonPoster { number: *season_num },
+            ImageKind::SeasonPoster {
+                number: *season_num,
+            },
             &poster_path,
             &label,
         )
@@ -155,9 +157,10 @@ fn collect_matched(root: &Path) -> Vec<(PathBuf, ParsedFile)> {
         if !is_video(&path) {
             continue;
         }
-        match ParsedFile::from_path(&path) {
-            Some(parsed) => out.push((path, parsed)),
-            None => warn!(file = %path.display(), "filename does not look like a One Pace release"),
+        if let Some(parsed) = ParsedFile::from_path(&path) {
+            out.push((path, parsed));
+        } else {
+            warn!(file = %path.display(), "filename does not look like a One Pace release");
         }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));

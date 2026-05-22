@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use reqwest::Client;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::fs;
 use tracing::{debug, trace};
@@ -96,14 +96,14 @@ impl CachedHttp {
         String::from_utf8(bytes).context("response body not utf-8")
     }
 
-    async fn is_fresh(&self, path: &PathBuf) -> bool {
+    async fn is_fresh(&self, path: &Path) -> bool {
         let Ok(meta) = fs::metadata(path).await else {
             return false;
         };
         let Ok(modified) = meta.modified() else {
             return false;
         };
-        modified.elapsed().map(|e| e < self.ttl).unwrap_or(false)
+        modified.elapsed().is_ok_and(|e| e < self.ttl)
     }
 
     fn path_for_keyed(&self, url: &str, headers: &[(&str, &str)]) -> PathBuf {
