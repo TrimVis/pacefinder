@@ -18,10 +18,26 @@ implemented.
 The previous community plugin (`jwueller/jellyfin-plugin-onepace`) relied on
 the One Pace GraphQL API, which was retired when the site was rebuilt in early
 2026. PaceFinder takes a different approach: a media-server-agnostic CLI that
-emits NFO files, pulling its metadata from a pluggable `DataSource`. The first
-data source wraps the community-maintained
-[SpykerNZ/one-pace-for-plex](https://github.com/SpykerNZ/one-pace-for-plex)
-dataset.
+emits NFO files, pulling its metadata from a pluggable `DataSource`.
+
+Multiple sources are tried in order, with the first to return data winning
+per field. Default chain:
+
+1. **onepace.net** — current canonical arc list (38 arcs incl. specials).
+   Provides season titles and fresh descriptions. Episode-level data is
+   not exposed by the site. Fetched via the `/watch` RSC payload.
+2. **[SpykerNZ/one-pace-for-plex](https://github.com/SpykerNZ/one-pace-for-plex)**
+   — hand-maintained NFO bundle. Provides series metadata, per-episode
+   titles/plots/airdates, and poster artwork. Last updated Jan 2024, so it
+   does not cover the Egghead split or newer arcs — those fall through to
+   onepace.net.
+
+Known additional source not yet wired: the
+[official One Pace Google Sheet](https://docs.google.com/spreadsheets/d/1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA/edit?gid=0)
+exposes the arc list with chapter ranges and pace-episode counts. It is
+publicly available as CSV via `?format=csv&gid=0`, but adds no
+descriptions or per-episode metadata over the two sources above. Adding it
+as a fallback is straightforward.
 
 ## Prerequisites
 

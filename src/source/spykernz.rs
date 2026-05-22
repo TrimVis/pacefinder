@@ -127,9 +127,9 @@ impl DataSource for SpykerNz {
         "SpykerNZ"
     }
 
-    async fn series(&self) -> Result<Series> {
+    async fn series(&self) -> Result<Option<Series>> {
         let arc = self.cached_series().await?;
-        Ok((*arc).clone())
+        Ok(Some((*arc).clone()))
     }
 
     async fn season(&self, number: u32) -> Result<Option<Season>> {

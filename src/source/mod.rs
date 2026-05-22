@@ -12,6 +12,8 @@ use async_trait::async_trait;
 use crate::model::{Episode, ImageKind, Season, Series};
 
 pub mod cache;
+pub mod composite;
+pub mod onepacenet;
 pub mod spykernz;
 
 #[async_trait]
@@ -19,8 +21,9 @@ pub trait DataSource: Send + Sync {
     /// Human-readable adapter name, useful in logs.
     fn name(&self) -> &'static str;
 
-    /// Series-level metadata (titles, plot, named-season map).
-    async fn series(&self) -> Result<Series>;
+    /// Series-level metadata (titles, plot, named-season map). Returns
+    /// `Ok(None)` if this source has no series-level info.
+    async fn series(&self) -> Result<Option<Series>>;
 
     /// Per-season metadata. Returns `Ok(None)` if the source has no record
     /// of the requested season number.

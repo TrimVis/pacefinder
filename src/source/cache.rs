@@ -46,8 +46,22 @@ impl CachedHttp {
         self
     }
 
+    pub async fn get_string_with_header(
+        &self,
+        url: &str,
+        name: &str,
+        value: &str,
+    ) -> Result<String> {
+        let bytes = self.get_bytes_with(url, &[(name, value)]).await?;
+        String::from_utf8(bytes).context("response body not utf-8")
+    }
+
     pub async fn get_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        let path = self.path_for(url);
+        self.get_bytes_with(url, &[]).await
+    }
+
+    async fn get_bytes_with(&self, url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>> {
+        let path = self.path_for_keyed(url, headers);
 
         if !self.refresh && self.is_fresh(&path).await {
             trace!(%url, "cache hit");
@@ -57,9 +71,11 @@ impl CachedHttp {
         }
 
         debug!(%url, "fetching");
-        let resp = self
-            .client
-            .get(url)
+        let mut req = self.client.get(url);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req
             .send()
             .await
             .with_context(|| format!("GET {url}"))?
@@ -90,9 +106,15 @@ impl CachedHttp {
         modified.elapsed().map(|e| e < self.ttl).unwrap_or(false)
     }
 
-    fn path_for(&self, url: &str) -> PathBuf {
+    fn path_for_keyed(&self, url: &str, headers: &[(&str, &str)]) -> PathBuf {
         let mut hasher = Sha256::new();
         hasher.update(url.as_bytes());
+        for (k, v) in headers {
+            hasher.update(b"\0");
+            hasher.update(k.as_bytes());
+            hasher.update(b":");
+            hasher.update(v.as_bytes());
+        }
         let digest = hex::encode(hasher.finalize());
         self.cache_dir.join(format!("{digest}.bin"))
     }

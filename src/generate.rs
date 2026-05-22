@@ -16,6 +16,8 @@ use crate::model::ImageKind;
 use crate::nfo::writer;
 use crate::source::DataSource;
 use crate::source::cache::CachedHttp;
+use crate::source::composite::Composite;
+use crate::source::onepacenet::OnepaceNet;
 use crate::source::spykernz::SpykerNz;
 
 const VIDEO_EXTS: &[&str] = &["mkv", "mp4", "m4v", "avi"];
@@ -33,7 +35,12 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
     info!(path = %root.display(), dry_run = opts.dry_run, "generating NFOs");
 
     let http = Arc::new(CachedHttp::new(opts.cache_ttl)?.refresh(opts.refresh));
-    let source: Arc<dyn DataSource> = Arc::new(SpykerNz::new(http));
+    // Order: onepace.net first (current arc list + fresh descriptions),
+    // SpykerNZ second (episodes, posters, series-level fallback).
+    let source: Arc<dyn DataSource> = Arc::new(Composite::new(vec![
+        Arc::new(OnepaceNet::new(http.clone())),
+        Arc::new(SpykerNz::new(http)),
+    ]));
 
     let matched = collect_matched(&root);
     info!(count = matched.len(), "matched episode files");
@@ -42,22 +49,25 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
         return Ok(());
     }
 
-    let series = source.series().await.context("fetching series metadata")?;
-    let series_path = root.join("tvshow.nfo");
-    write(opts.dry_run, &series_path, "tvshow.nfo", || async {
-        writer::write_series(&series_path, &series).await
-    })
-    .await?;
+    if let Some(series) = source.series().await.context("fetching series metadata")? {
+        let series_path = root.join("tvshow.nfo");
+        write(opts.dry_run, &series_path, "tvshow.nfo", || async {
+            writer::write_series(&series_path, &series).await
+        })
+        .await?;
 
-    let series_poster_path = root.join("poster.png");
-    fetch_image(
-        opts.dry_run,
-        source.as_ref(),
-        ImageKind::SeriesPoster,
-        &series_poster_path,
-        "poster.png",
-    )
-    .await?;
+        let series_poster_path = root.join("poster.png");
+        fetch_image(
+            opts.dry_run,
+            source.as_ref(),
+            ImageKind::SeriesPoster,
+            &series_poster_path,
+            "poster.png",
+        )
+        .await?;
+    } else {
+        warn!("no series-level metadata from any data source");
+    }
 
     let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
     let mut episodes_written = 0usize;
