@@ -1,0 +1,18 @@
+[package]
+name = "pacefinder"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "CLI that generates Kodi-format NFOs and artwork for One Pace fan-cut media libraries."
+license = "MIT"
+repository = "https://github.com/TrimVis/PaceFinder"
+readme = "README.md"
+keywords = ["jellyfin", "plex", "kodi", "nfo", "onepace"]
+categories = ["command-line-utilities", "multimedia"]
+
+[dependencies]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
