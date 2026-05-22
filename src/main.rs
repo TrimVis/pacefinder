@@ -1,4 +1,5 @@
 mod cli;
+mod generate;
 mod matcher;
 mod model;
 mod nfo;
@@ -8,6 +9,7 @@ mod source;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Command};
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -22,5 +24,21 @@ async fn main() -> Result<()> {
 
     match args.command {
         Command::Scan { path } => scan::run(&path),
+        Command::Generate {
+            path,
+            dry_run,
+            cache_ttl_hours,
+            refresh,
+        } => {
+            generate::run(
+                &path,
+                generate::Options {
+                    dry_run,
+                    cache_ttl: Duration::from_secs(cache_ttl_hours * 3600),
+                    refresh,
+                },
+            )
+            .await
+        }
     }
 }

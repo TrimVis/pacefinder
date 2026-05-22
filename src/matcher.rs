@@ -17,13 +17,6 @@ pub struct ParsedFile {
     pub extension: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedFolder {
-    pub arc: String,
-    pub chapter_range: String,
-    pub resolution: Option<String>,
-}
-
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
@@ -39,20 +32,7 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
-static FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?x)
-        ^\[One\ Pace\]
-        \[(?P<range>\d+(?:-\d+)?)\]
-        \s+(?P<arc>.+?)
-        \s+\[(?P<res>[^\]]+)\]$
-        ",
-    )
-    .expect("static regex")
-});
-
 impl ParsedFile {
-    #[allow(dead_code)] // wired up by the `generate` subcommand
     pub fn from_path(path: &Path) -> Option<Self> {
         let name = path.file_name()?.to_str()?;
         Self::from_filename(name)
@@ -71,26 +51,8 @@ impl ParsedFile {
     }
 }
 
-impl ParsedFolder {
-    #[allow(dead_code)] // wired up by the `generate` subcommand
-    pub fn from_path(path: &Path) -> Option<Self> {
-        let name = path.file_name()?.to_str()?;
-        Self::from_name(name)
-    }
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        let caps = FOLDER_RE.captures(name)?;
-        Some(Self {
-            arc: caps["arc"].trim().to_string(),
-            chapter_range: caps["range"].to_string(),
-            resolution: Some(caps["res"].to_string()),
-        })
-    }
-}
-
 /// Normalize an arc name for matching: lowercase, collapse whitespace,
 /// strip punctuation that varies between sources (commas, apostrophes).
-#[allow(dead_code)] // consumed by the SpykerNZ adapter
 pub fn normalize_arc(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut prev_space = true;
@@ -171,22 +133,6 @@ mod tests {
     #[test]
     fn rejects_non_one_pace_file() {
         assert!(ParsedFile::from_filename("Some.Other.Show.S01E01.mkv").is_none());
-    }
-
-    #[test]
-    fn parses_arc_folder() {
-        let f = ParsedFolder::from_name("[One Pace][1-7] Romance Dawn [1080p]").unwrap();
-        assert_eq!(f.arc, "Romance Dawn");
-        assert_eq!(f.chapter_range, "1-7");
-        assert_eq!(f.resolution.as_deref(), Some("1080p"));
-    }
-
-    #[test]
-    fn arc_folder_does_not_match_episode_filename() {
-        assert!(
-            ParsedFolder::from_name("[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv")
-                .is_none()
-        );
     }
 
     #[test]

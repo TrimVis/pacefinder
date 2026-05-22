@@ -21,9 +21,9 @@ use crate::model::{Episode, ImageKind, Season, Series};
 use crate::nfo::kodi;
 
 const TREE_URL: &str =
-    "https://api.github.com/repos/SpykerNZ/one-pace-for-plex/git/trees/master?recursive=1";
+    "https://api.github.com/repos/SpykerNZ/one-pace-for-plex/git/trees/main?recursive=1";
 const RAW_BASE: &str =
-    "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/master/";
+    "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/";
 
 pub struct SpykerNz {
     http: Arc<CachedHttp>,

@@ -1,4 +1,4 @@
-#![allow(dead_code)] // removed once `generate` subcommand wires these in
+#![allow(dead_code)] // image() and name() are wired up by step 13
 //! Pluggable metadata data sources.
 //!
 //! A `DataSource` knows how to answer queries about One Pace's series,
