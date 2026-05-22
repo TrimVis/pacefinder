@@ -33,4 +33,32 @@ jobs:
           target: ${{ matrix.target }}
           tar: unix
           zip: windows
+          # Upload <archive>.sha256 alongside each binary archive.
+          checksum: sha256
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Write the install instructions into the release body after all platform
+  # builds have uploaded their archives. Single source of truth lives in
+  # .github/install-snippet.md (also embedded in README.md).
+  release-notes:
+    name: Update release notes
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render install snippet with tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Strip the HTML comment header (lines between <!-- ... --> at top of file)
+          # and substitute ${TAG} placeholders, then write to a notes file.
+          awk 'NR==1 && /^<!--/ {skip=1} skip && /-->/ {skip=0; next} !skip' \
+            .github/install-snippet.md \
+            | envsubst '${TAG}' > release-notes.md
+          echo "--- rendered release notes ---"
+          cat release-notes.md
+      - name: Set release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --notes-file release-notes.md --repo "$GITHUB_REPOSITORY"
