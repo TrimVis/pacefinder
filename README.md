@@ -7,8 +7,11 @@ posters.
 
 ## Status
 
-Bootstrap / scaffolding. The CLI parses arguments and walks a directory; it
-does not yet write any NFOs. See `git log` for the implementation roadmap.
+`pacefinder generate <series-root>` writes valid Kodi NFOs (`tvshow.nfo`,
+`season.nfo`, per-episode `.nfo`) verified end-to-end against Jellyfin
+10.11.9: series, seasons, and episodes ingest with the correct titles,
+plots, original-title, and S/E numbering. Image fetching is not yet
+implemented.
 
 ## Why
 
@@ -38,7 +41,12 @@ cargo fmt --check
 ## Run
 
 ```sh
+# walk a directory and list recognized One Pace files
 cargo run -- scan /path/to/onepace/library
+
+# generate NFOs for every recognized file
+cargo run -- generate "/path/to/library/One Pace"
+cargo run -- generate "/path/to/library/One Pace" --dry-run
 ```
 
 Available subcommands:
@@ -46,11 +54,38 @@ Available subcommands:
 | Command | Description |
 |---|---|
 | `scan <path>` | Walk the path and list video files that would be processed. |
+| `generate <series-root>` | Fetch metadata via SpykerNZ and write Kodi NFOs next to every recognized file. |
+
+`generate` flags: `--dry-run`, `--refresh` (bypass HTTP cache),
+`--cache-ttl-hours N` (default 24).
 
 Global flags:
 
 - `--log <directive>` — `tracing-subscriber` env filter. Defaults to `info`.
   Also reads `PACEFINDER_LOG`.
+
+## Required library layout
+
+Jellyfin (and Plex, Kodi) treat every immediate child of a TV library as a
+separate Series. For NFOs to be associated with one *One Pace* series, the
+path you pass to `pacefinder generate` must itself be the series folder, with
+arc folders directly inside:
+
+```
+<jellyfin-library-root>/
+  One Pace/                                ← pass this to `pacefinder generate`
+    tvshow.nfo                             ← written by pacefinder
+    [One Pace][1-7] Romance Dawn [1080p]/  ← arc = season
+      season.nfo                           ← written by pacefinder
+      [One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv
+      [One Pace][1] Romance Dawn 01 [1080p][D767799C].nfo  ← written by pacefinder
+      ...
+    [One Pace][8-21] Orange Town [1080p]/
+      ...
+```
+
+Then in Jellyfin, add `<jellyfin-library-root>/` as a TV Shows library with
+the "Nfo" local metadata reader enabled and remote metadata fetchers off.
 
 ## Dev loop with Jellyfin 10.11
 
