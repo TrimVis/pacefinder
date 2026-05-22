@@ -1,4 +1,3 @@
-#![allow(dead_code)] // ImageKind is wired up by step 13
 //! Domain types for One Pace metadata.
 //!
 //! These are serde-friendly so adapters can deserialize directly from

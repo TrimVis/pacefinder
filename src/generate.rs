@@ -9,7 +9,10 @@ use std::time::Duration;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
+use tokio::fs;
+
 use crate::matcher::{ParsedFile, normalize_arc};
+use crate::model::ImageKind;
 use crate::nfo::writer;
 use crate::source::DataSource;
 use crate::source::cache::CachedHttp;
@@ -44,6 +47,16 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
     write(opts.dry_run, &series_path, "tvshow.nfo", || async {
         writer::write_series(&series_path, &series).await
     })
+    .await?;
+
+    let series_poster_path = root.join("poster.png");
+    fetch_image(
+        opts.dry_run,
+        source.as_ref(),
+        ImageKind::SeriesPoster,
+        &series_poster_path,
+        "poster.png",
+    )
     .await?;
 
     let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
@@ -99,6 +112,17 @@ pub async fn run(root: &Path, opts: Options) -> Result<()> {
             writer::write_season(&nfo_path, &season).await
         })
         .await?;
+
+        let poster_path = folder.join("poster.png");
+        let label = format!("poster.png (S{:02})", season_num);
+        fetch_image(
+            opts.dry_run,
+            source.as_ref(),
+            ImageKind::SeasonPoster { number: *season_num },
+            &poster_path,
+            &label,
+        )
+        .await?;
     }
 
     info!(
@@ -138,6 +162,37 @@ fn is_video(path: &Path) -> bool {
             VIDEO_EXTS.contains(&lower.as_str())
         })
         .unwrap_or(false)
+}
+
+async fn fetch_image(
+    dry_run: bool,
+    source: &dyn DataSource,
+    kind: ImageKind,
+    path: &Path,
+    label: &str,
+) -> Result<()> {
+    let Some(bytes) = source
+        .image(kind)
+        .await
+        .with_context(|| format!("fetching {label}"))?
+    else {
+        warn!(image = %label, "no image available from source");
+        return Ok(());
+    };
+    if dry_run {
+        info!(would_write = %path.display(), bytes = bytes.len(), "[dry-run] {label}");
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    fs::write(path, &bytes)
+        .await
+        .with_context(|| format!("writing {}", path.display()))?;
+    info!(path = %path.display(), bytes = bytes.len(), "wrote {label}");
+    Ok(())
 }
 
 async fn write<F, Fut>(dry_run: bool, path: &Path, label: &str, op: F) -> Result<()>

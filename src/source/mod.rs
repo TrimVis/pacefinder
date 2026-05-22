@@ -1,4 +1,4 @@
-#![allow(dead_code)] // image() and name() are wired up by step 13
+#![allow(dead_code)] // `name()` is intentionally kept for future logging
 //! Pluggable metadata data sources.
 //!
 //! A `DataSource` knows how to answer queries about One Pace's series,
