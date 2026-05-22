@@ -1,23 +1,27 @@
 //! `generate` subcommand: scan a One Pace library, fetch metadata,
 //! and write Kodi-format NFO sidecars next to each video file.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
-use crate::matcher::{ParsedFile, normalize_arc};
+use crate::matcher::{ParsedFile, is_arc_folder_name, normalize_arc};
 use crate::nfo::writer;
 use crate::scan::is_video;
-use crate::source::{DataSource, ImageKind};
 use crate::source::cache::CachedHttp;
 use crate::source::composite::Composite;
 use crate::source::onepacenet::OnepaceNet;
 use crate::source::spykernz::SpykerNz;
+use crate::source::{DataSource, ImageKind};
+
+const SAMPLE_EXPECTED_FILENAME: &str =
+    "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv";
 
 pub struct Options {
     pub dry_run: bool,
@@ -26,22 +30,22 @@ pub struct Options {
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
-    let root = root
-        .canonicalize()
-        .with_context(|| format!("resolving {}", root.display()))?;
+    let root = canonicalize_or_helpful_error(root)?;
     info!(path = %root.display(), dry_run = opts.dry_run, "generating NFOs");
+
+    warn_if_layout_looks_wrong(&root);
 
     let source = build_source(opts.cache_ttl, opts.refresh)?;
 
-    let matched = collect_matched(&root);
-    info!(count = matched.len(), "matched episode files");
-    if matched.is_empty() {
-        warn!("no One Pace files matched — nothing to do");
+    let scan = collect_matched(&root);
+    info!(count = scan.matched.len(), "matched episode files");
+    if scan.matched.is_empty() {
+        report_empty_match(&root, &scan);
         return Ok(());
     }
 
     write_series_assets(source.as_ref(), &root, opts.dry_run)?;
-    let report = write_episode_assets(source.as_ref(), &root, &matched, opts.dry_run)?;
+    let report = write_episode_assets(source.as_ref(), &root, &scan.matched, opts.dry_run)?;
     write_season_assets(source.as_ref(), &report.arc_folders, opts.dry_run)?;
 
     info!(
@@ -51,6 +55,50 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         "done"
     );
     Ok(())
+}
+
+fn canonicalize_or_helpful_error(root: &Path) -> Result<PathBuf> {
+    root.canonicalize().map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            anyhow!("path does not exist: {}", root.display())
+        } else {
+            anyhow!("{}: {}", root.display(), e)
+        }
+    })
+}
+
+/// If `root` looks like a library root (arc folders directly inside, name
+/// doesn't mention "one pace"), warn — we'd happily write `tvshow.nfo`
+/// there and Jellyfin would treat every arc as its own Series.
+fn warn_if_layout_looks_wrong(root: &Path) {
+    let name = root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if name.contains("one pace") {
+        return; // looks like a series folder
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    let arc_count = entries
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| e.file_name().to_str().map(String::from))
+        .filter(|n| is_arc_folder_name(n))
+        .count();
+    if arc_count >= 2 {
+        warn!(
+            "path {} doesn't look like a One Pace series folder (its name doesn't \
+             contain 'one pace') but {} arc folders sit directly inside it. \
+             If your layout is <library>/<arc>/<episode>, Jellyfin will treat each \
+             arc as a separate Series. Consider running: pacefinder reorder {}",
+            root.display(),
+            arc_count,
+            root.display()
+        );
+    }
 }
 
 fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Arc<dyn DataSource>> {
@@ -99,8 +147,9 @@ fn write_episode_assets(
     let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
     let mut written = 0usize;
     let mut unmatched = 0usize;
+    let total = matched.len();
 
-    for (media_path, parsed) in matched {
+    for (i, (media_path, parsed)) in matched.iter().enumerate() {
         let arc_norm = normalize_arc(&parsed.arc);
         let Some(episode) = source
             .episode(&arc_norm, parsed.episode)
@@ -118,9 +167,10 @@ fn write_episode_assets(
 
         let nfo_path = media_path.with_extension("nfo");
         let label = format!(
-            "S{season:02}E{number:02}",
+            "S{season:02}E{number:02} ({i}/{total})",
             season = episode.season,
-            number = episode.number
+            number = episode.number,
+            i = i + 1,
         );
         write(dry_run, &nfo_path, &label, || {
             writer::write_episode(&nfo_path, &episode)
@@ -177,8 +227,16 @@ fn write_season_assets(
     Ok(())
 }
 
-fn collect_matched(root: &Path) -> Vec<(PathBuf, ParsedFile)> {
-    let mut out = Vec::new();
+struct ScanReport {
+    matched: Vec<(PathBuf, ParsedFile)>,
+    /// Total `.mkv`/`.mp4`/etc files seen, regardless of whether their name
+    /// looked like a One Pace release.
+    total_videos: usize,
+}
+
+fn collect_matched(root: &Path) -> ScanReport {
+    let mut matched = Vec::new();
+    let mut total_videos = 0usize;
     for entry in WalkDir::new(root).follow_links(false) {
         let Ok(entry) = entry else { continue };
         if !entry.file_type().is_file() {
@@ -188,14 +246,32 @@ fn collect_matched(root: &Path) -> Vec<(PathBuf, ParsedFile)> {
         if !is_video(&path) {
             continue;
         }
+        total_videos += 1;
         if let Some(parsed) = ParsedFile::from_path(&path) {
-            out.push((path, parsed));
+            matched.push((path, parsed));
         } else {
             warn!(file = %path.display(), "filename does not look like a One Pace release");
         }
     }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
+    matched.sort_by(|a, b| a.0.cmp(&b.0));
+    ScanReport {
+        matched,
+        total_videos,
+    }
+}
+
+fn report_empty_match(root: &Path, scan: &ScanReport) {
+    if scan.total_videos == 0 {
+        warn!("no video files found under {}", root.display());
+    } else {
+        warn!(
+            "found {} video files under {} but none matched the One Pace naming scheme. \
+             Expected filenames like: {}",
+            scan.total_videos,
+            root.display(),
+            SAMPLE_EXPECTED_FILENAME,
+        );
+    }
 }
 
 fn fetch_image(

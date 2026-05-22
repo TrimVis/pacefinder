@@ -5,8 +5,9 @@
 //! flagged but not moved; reconstructing their arc-folder name requires
 //! inspecting every episode's chapter range and is left for a later pass.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
@@ -18,9 +19,13 @@ pub struct Options {
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
-    let root = root
-        .canonicalize()
-        .with_context(|| format!("resolving {}", root.display()))?;
+    let root = root.canonicalize().map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            anyhow!("path does not exist: {}", root.display())
+        } else {
+            anyhow!("{}: {}", root.display(), e)
+        }
+    })?;
     let target = root.join(&opts.series_folder);
     info!(
         path = %root.display(),
@@ -30,7 +35,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     );
 
     let mut to_move: Vec<PathBuf> = Vec::new();
-    let mut loose_files = 0usize;
+    let mut loose_files: Vec<PathBuf> = Vec::new();
     for entry in fs::read_dir(&root)? {
         let entry = entry?;
         let path = entry.path();
@@ -47,16 +52,19 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
                 to_move.push(path);
             }
         } else if ft.is_file() && ParsedFile::from_path(&path).is_some() {
-            loose_files += 1;
+            loose_files.push(path);
         }
     }
 
-    if loose_files > 0 {
+    if !loose_files.is_empty() {
         warn!(
-            count = loose_files,
-            "loose One Pace files at library root will not be moved \
-             (only arc folders are wrapped — file-level grouping is unimplemented)"
+            "{} loose One Pace files at library root will not be moved \
+             (file-level grouping is unimplemented):",
+            loose_files.len()
         );
+        for p in &loose_files {
+            warn!("  {}", p.display());
+        }
     }
 
     if to_move.is_empty() {
