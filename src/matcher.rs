@@ -22,30 +22,58 @@ pub fn is_arc_folder_name(name: &str) -> bool {
     FOLDER_RE.is_match(name)
 }
 
+// Chapter ranges in the wild appear in several shapes:
+//   [1]        single chapter
+//   [1-7]      contiguous range
+//   [42,22]    multi-chapter (comma)
+//   [153-155, 142]   range + extra
+//   [1058-]    open-ended (folder-only — no upper bound declared yet)
+// Allow any combination of digits, commas, dashes, and whitespace inside.
+const RANGE_BODY: &str = r"\d+[\d,\s-]*";
+
 static FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
+    Regex::new(&format!(
         r"(?x)
         ^\[One\ Pace\]
-        \[\d+(?:-\d+)?\]
+        \[{RANGE_BODY}\]
         \s+.+?
         \s+\[[^\]]+\]$
-        ",
-    )
+        "
+    ))
     .expect("static regex")
 });
 
+// Episode files where the arc is broken into numbered episodes:
+//   [One Pace][<range>] <Arc> <ep> [<res>][<crc>].<ext>
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
+    Regex::new(&format!(
         r"(?x)
         ^\[One\ Pace\]
-        \[(?P<range>\d+(?:-\d+)?)\]
+        \[(?P<range>{RANGE_BODY})\]
         \s+(?P<arc>.+?)
         \s+(?P<ep>\d+)
         \s+\[(?P<res>[^\]]+)\]
-        (?:\[(?P<crc>[0-9A-Fa-f]{8})\])?
+        (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.(?P<ext>[A-Za-z0-9]+)$
-        ",
-    )
+        "
+    ))
+    .expect("static regex")
+});
+
+// Single-file arcs where the entire season is one file with no episode number:
+//   [One Pace][<range>] <Arc> [<res>][<crc>].<ext>
+// Treated as episode 1 of the matching season.
+static FILE_RE_SINGLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"(?x)
+        ^\[One\ Pace\]
+        \[(?P<range>{RANGE_BODY})\]
+        \s+(?P<arc>.+?)
+        \s+\[(?P<res>[^\]]+)\]
+        (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
+        \.(?P<ext>[A-Za-z0-9]+)$
+        "
+    ))
     .expect("static regex")
 });
 
@@ -56,10 +84,20 @@ impl ParsedFile {
     }
 
     pub fn from_filename(name: &str) -> Option<Self> {
-        let caps = FILE_RE.captures(name)?;
+        if let Some(caps) = FILE_RE.captures(name) {
+            return Some(Self {
+                arc: caps["arc"].trim().to_string(),
+                episode: caps["ep"].parse().ok()?,
+                chapter_range: caps["range"].to_string(),
+                resolution: Some(caps["res"].to_string()),
+                crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
+                extension: caps["ext"].to_string(),
+            });
+        }
+        let caps = FILE_RE_SINGLE.captures(name)?;
         Some(Self {
             arc: caps["arc"].trim().to_string(),
-            episode: caps["ep"].parse().ok()?,
+            episode: 1,
             chapter_range: caps["range"].to_string(),
             resolution: Some(caps["res"].to_string()),
             crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
@@ -150,6 +188,43 @@ mod tests {
     #[test]
     fn rejects_non_one_pace_file() {
         assert!(ParsedFile::from_filename("Some.Other.Show.S01E01.mkv").is_none());
+    }
+
+    #[test]
+    fn parses_multi_chapter_range_with_comma() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][42,22] Gaimon 01 [1080p][0C2DBF75].mkv",
+        )
+        .unwrap();
+        assert_eq!(p.chapter_range, "42,22");
+        assert_eq!(p.arc, "Gaimon");
+        assert_eq!(p.episode, 1);
+    }
+
+    #[test]
+    fn parses_range_with_comma_and_space() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][153-155, 142] Drum Island 08 [1080p][9794072D].mkv",
+        )
+        .unwrap();
+        assert_eq!(p.arc, "Drum Island");
+        assert_eq!(p.episode, 8);
+    }
+
+    #[test]
+    fn parses_single_file_arc_without_episode_number() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][35-75] The Adventures of Buggy's Crew [1080p][E75794DB].mkv",
+        )
+        .unwrap();
+        assert_eq!(p.arc, "The Adventures of Buggy's Crew");
+        assert_eq!(p.episode, 1);
+        assert_eq!(p.chapter_range, "35-75");
+    }
+
+    #[test]
+    fn arc_folder_regex_accepts_open_ended_range() {
+        assert!(is_arc_folder_name("[One Pace][1058-] Egghead [1080p]"));
     }
 
     #[test]

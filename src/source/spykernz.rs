@@ -75,20 +75,40 @@ impl SpykerNz {
         Ok(kodi::parse_tvshow(&xml)?.into())
     }
 
-    /// Look up the season number for a normalized arc name.
+    /// Look up the season number for a normalized arc name. Tries the name
+    /// as-is first, then a small set of known spelling aliases (the user
+    /// community uses both "Whiskey Peak" and "Whisky Peak", for example).
     async fn season_for_arc(&self, arc_norm: &str) -> Result<Option<u32>> {
         let series = self.cached_series().await?;
-        Ok(series
-            .named_seasons
-            .iter()
-            .find(|ns| normalize_arc(&strip_leading_number(&ns.name)) == arc_norm)
-            .map(|ns| ns.number))
+        let lookup = |needle: &str| -> Option<u32> {
+            series
+                .named_seasons
+                .iter()
+                .find(|ns| normalize_arc(&strip_leading_number(&ns.name)) == needle)
+                .map(|ns| ns.number)
+        };
+        if let Some(num) = lookup(arc_norm) {
+            return Ok(Some(num));
+        }
+        if let Some(alias) = arc_alias(arc_norm) {
+            return Ok(lookup(alias));
+        }
+        Ok(None)
     }
 }
 
 fn strip_leading_number(name: &str) -> &str {
     // SpykerNZ stores arc names like "1. Romance Dawn"; users see "Romance Dawn".
     name.split_once(". ").map(|(_, rest)| rest).unwrap_or(name)
+}
+
+/// Map a user-side arc name (normalized) to the SpykerNZ canonical spelling
+/// when they diverge. Add entries as community-discovered.
+fn arc_alias(normalized: &str) -> Option<&'static str> {
+    match normalized {
+        "whiskey peak" => Some("whisky peak"),
+        _ => None,
+    }
 }
 
 fn raw_url(path: &str) -> String {
