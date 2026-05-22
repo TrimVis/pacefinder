@@ -94,22 +94,27 @@ fn extract_segments(rsc: &str) -> Result<Vec<Segment>> {
     Ok(segments)
 }
 
-fn find_segments(v: &Value) -> Option<&Value> {
-    match v {
-        Value::Object(map) => {
-            if let Some(s) = map.get("segments") {
-                return Some(s);
-            }
-            for child in map.values() {
-                if let Some(s) = find_segments(child) {
+/// Locate the `segments` array anywhere in the parsed RSC payload.
+///
+/// Iterative DFS rather than recursive — RSC payloads are attacker-adjacent
+/// (we trust onepace.net but a hostile network would have to MitM TLS to
+/// alter them) and a deeply nested object should not be able to blow the
+/// process stack regardless.
+fn find_segments(root: &Value) -> Option<&Value> {
+    let mut stack: Vec<&Value> = vec![root];
+    while let Some(v) = stack.pop() {
+        match v {
+            Value::Object(map) => {
+                if let Some(s) = map.get("segments") {
                     return Some(s);
                 }
+                stack.extend(map.values());
             }
-            None
+            Value::Array(arr) => stack.extend(arr),
+            _ => {}
         }
-        Value::Array(arr) => arr.iter().find_map(find_segments),
-        _ => None,
     }
+    None
 }
 
 fn build_timeline(segments: Vec<Segment>) -> Timeline {

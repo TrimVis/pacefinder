@@ -112,9 +112,21 @@ fn raw_url(path: &str) -> String {
 }
 
 fn encode_path(path: &str) -> String {
-    // Raw GitHub serves filenames containing spaces, commas, apostrophes; only
-    // spaces strictly need percent-encoding for URL parsing.
-    path.replace(' ', "%20")
+    // Percent-encode the characters that would otherwise alter URL parsing.
+    // `%` must come first or we'd double-encode anything else. Spaces are the
+    // only char in current SpykerNZ paths that needs this; the rest are
+    // defensive against future filename additions (#fragment, ?query, etc.).
+    let mut out = String::with_capacity(path.len());
+    for ch in path.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            ' ' => out.push_str("%20"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 impl DataSource for SpykerNz {
@@ -303,10 +315,14 @@ mod tests {
     }
 
     #[test]
-    fn encode_path_quotes_spaces_only() {
+    fn encode_path_handles_spaces_and_url_metachars() {
         assert_eq!(
             encode_path("One Pace/Season 1/season.nfo"),
             "One%20Pace/Season%201/season.nfo"
+        );
+        assert_eq!(
+            encode_path("a/b?c#d e/100%.nfo"),
+            "a/b%3Fc%23d%20e/100%25.nfo"
         );
     }
 
