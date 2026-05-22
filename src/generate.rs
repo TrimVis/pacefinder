@@ -32,13 +32,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         .with_context(|| format!("resolving {}", root.display()))?;
     info!(path = %root.display(), dry_run = opts.dry_run, "generating NFOs");
 
-    let http = Arc::new(CachedHttp::new(opts.cache_ttl)?.refresh(opts.refresh));
-    // Order: onepace.net first (current arc list + fresh descriptions),
-    // SpykerNZ second (episodes, posters, series-level fallback).
-    let source: Arc<dyn DataSource> = Arc::new(Composite::new(vec![
-        Arc::new(OnepaceNet::new(http.clone())),
-        Arc::new(SpykerNz::new(http)),
-    ]));
+    let source = build_source(opts.cache_ttl, opts.refresh)?;
 
     let matched = collect_matched(&root);
     info!(count = matched.len(), "matched episode files");
@@ -47,29 +41,67 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         return Ok(());
     }
 
-    if let Some(series) = source.series().context("fetching series metadata")? {
-        let series_path = root.join("tvshow.nfo");
-        write(opts.dry_run, &series_path, "tvshow.nfo", || {
-            writer::write_series(&series_path, &series)
-        })?;
+    write_series_assets(source.as_ref(), &root, opts.dry_run)?;
+    let report = write_episode_assets(source.as_ref(), &root, &matched, opts.dry_run)?;
+    write_season_assets(source.as_ref(), &report.arc_folders, opts.dry_run)?;
 
-        let series_poster_path = root.join("poster.png");
-        fetch_image(
-            opts.dry_run,
-            source.as_ref(),
-            ImageKind::SeriesPoster,
-            &series_poster_path,
-            "poster.png",
-        )?;
-    } else {
+    info!(
+        episodes = report.written,
+        unmatched = report.unmatched,
+        seasons = report.arc_folders.len(),
+        "done"
+    );
+    Ok(())
+}
+
+fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Arc<dyn DataSource>> {
+    let http = Arc::new(CachedHttp::new(cache_ttl)?.refresh(refresh));
+    // Order: onepace.net first (current arc list + fresh descriptions),
+    // SpykerNZ second (episodes, posters, series-level fallback).
+    Ok(Arc::new(Composite::new(vec![
+        Arc::new(OnepaceNet::new(http.clone())),
+        Arc::new(SpykerNz::new(http)),
+    ])))
+}
+
+fn write_series_assets(source: &dyn DataSource, root: &Path, dry_run: bool) -> Result<()> {
+    let Some(series) = source.series().context("fetching series metadata")? else {
         warn!("no series-level metadata from any data source");
-    }
+        return Ok(());
+    };
+    let series_path = root.join("tvshow.nfo");
+    write(dry_run, &series_path, "tvshow.nfo", || {
+        writer::write_series(&series_path, &series)
+    })?;
+    let series_poster_path = root.join("poster.png");
+    fetch_image(
+        dry_run,
+        source,
+        ImageKind::SeriesPoster,
+        &series_poster_path,
+        "poster.png",
+    )
+}
 
+struct EpisodeReport {
+    written: usize,
+    unmatched: usize,
+    /// Maps each season number we saw an episode for back to the folder
+    /// that episode lives in. Consumed by `write_season_assets`.
+    arc_folders: HashMap<u32, PathBuf>,
+}
+
+fn write_episode_assets(
+    source: &dyn DataSource,
+    root: &Path,
+    matched: &[(PathBuf, ParsedFile)],
+    dry_run: bool,
+) -> Result<EpisodeReport> {
     let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
-    let mut episodes_written = 0usize;
-    let mut episodes_unmatched = 0usize;
+    let mut written = 0usize;
+    let mut unmatched = 0usize;
 
-    for (media_path, parsed) in &matched {
+    for (media_path, parsed) in matched {
         let arc_norm = normalize_arc(&parsed.arc);
         let Some(episode) = source
             .episode(&arc_norm, parsed.episode)
@@ -81,7 +113,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
                 episode = parsed.episode,
                 "no metadata found for this episode"
             );
-            episodes_unmatched += 1;
+            unmatched += 1;
             continue;
         };
 
@@ -91,10 +123,10 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
             season = episode.season,
             number = episode.number
         );
-        write(opts.dry_run, &nfo_path, &label, || {
+        write(dry_run, &nfo_path, &label, || {
             writer::write_episode(&nfo_path, &episode)
         })?;
-        episodes_written += 1;
+        written += 1;
 
         if let Some(parent) = media_path.parent()
             && parent != root
@@ -105,7 +137,19 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         }
     }
 
-    for (season_num, folder) in &arc_folders {
+    Ok(EpisodeReport {
+        written,
+        unmatched,
+        arc_folders,
+    })
+}
+
+fn write_season_assets(
+    source: &dyn DataSource,
+    arc_folders: &HashMap<u32, PathBuf>,
+    dry_run: bool,
+) -> Result<()> {
+    for (season_num, folder) in arc_folders {
         let Some(season) = source
             .season(*season_num)
             .with_context(|| format!("fetching season {season_num}"))?
@@ -115,15 +159,15 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         };
         let nfo_path = folder.join("season.nfo");
         let label = format!("season.nfo (S{season_num:02})");
-        write(opts.dry_run, &nfo_path, &label, || {
+        write(dry_run, &nfo_path, &label, || {
             writer::write_season(&nfo_path, &season)
         })?;
 
         let poster_path = folder.join("poster.png");
         let label = format!("poster.png (S{season_num:02})");
         fetch_image(
-            opts.dry_run,
-            source.as_ref(),
+            dry_run,
+            source,
             ImageKind::SeasonPoster {
                 number: *season_num,
             },
@@ -131,13 +175,6 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
             &label,
         )?;
     }
-
-    info!(
-        episodes = episodes_written,
-        unmatched = episodes_unmatched,
-        seasons = arc_folders.len(),
-        "done"
-    );
     Ok(())
 }
 
