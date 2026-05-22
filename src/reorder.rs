@@ -73,8 +73,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     }
 
     if !opts.dry_run {
-        fs::create_dir_all(&target)
-            .with_context(|| format!("creating {}", target.display()))?;
+        fs::create_dir_all(&target).with_context(|| format!("creating {}", target.display()))?;
     }
 
     let mut moved = 0usize;

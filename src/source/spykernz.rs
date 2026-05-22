@@ -41,8 +41,7 @@ impl SpykerNz {
             return Ok(Arc::clone(idx));
         }
         let json = self.http.get_string(TREE_URL)?;
-        let tree: GitHubTree =
-            serde_json::from_str(&json).context("parsing tree response")?;
+        let tree: GitHubTree = serde_json::from_str(&json).context("parsing tree response")?;
         if tree.truncated {
             warn!("github tree response truncated — index may be incomplete");
         }

@@ -39,10 +39,8 @@ pub fn run(root: &Path) -> Result<()> {
 }
 
 pub(crate) fn is_video(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| {
-            let lower = e.to_ascii_lowercase();
-            VIDEO_EXTS.contains(&lower.as_str())
-        })
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        let lower = e.to_ascii_lowercase();
+        VIDEO_EXTS.contains(&lower.as_str())
+    })
 }

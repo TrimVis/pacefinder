@@ -159,11 +159,7 @@ impl DataSource for OnepaceNet {
         }))
     }
 
-    fn episode(
-        &self,
-        _arc_normalized: &str,
-        _episode_number: u32,
-    ) -> Result<Option<Episode>> {
+    fn episode(&self, _arc_normalized: &str, _episode_number: u32) -> Result<Option<Episode>> {
         // onepace.net treats each arc as the watchable unit; no per-episode
         // titles or plots are exposed.
         Ok(None)

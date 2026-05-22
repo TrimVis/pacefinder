@@ -24,8 +24,8 @@ pub struct CachedHttp {
 /// On-disk location of the HTTP cache, independent of whether a
 /// [`CachedHttp`] has ever been constructed. Used by the `cache` subcommand.
 pub fn cache_dir() -> Result<PathBuf> {
-    let dirs = ProjectDirs::from("net", "PaceFinder", "pacefinder")
-        .context("resolving project dirs")?;
+    let dirs =
+        ProjectDirs::from("net", "PaceFinder", "pacefinder").context("resolving project dirs")?;
     Ok(dirs.cache_dir().join("http"))
 }
 
@@ -86,8 +86,7 @@ impl CachedHttp {
 
         if !self.refresh && self.is_fresh(&path) {
             trace!(%url, "cache hit");
-            return fs::read(&path)
-                .with_context(|| format!("reading cache {}", path.display()));
+            return fs::read(&path).with_context(|| format!("reading cache {}", path.display()));
         }
 
         debug!(%url, "fetching");
@@ -100,8 +99,7 @@ impl CachedHttp {
             .body_mut()
             .read_to_vec()
             .with_context(|| format!("body for {url}"))?;
-        fs::write(&path, &bytes)
-            .with_context(|| format!("writing cache {}", path.display()))?;
+        fs::write(&path, &bytes).with_context(|| format!("writing cache {}", path.display()))?;
         Ok(bytes)
     }
 

@@ -31,8 +31,7 @@ fn write_xml<T: serde::Serialize>(path: &Path, value: &T, root: &str) -> Result<
     let out = format!("{XML_DECL}{body}\n");
 
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
     debug!(path = %path.display(), "wrote nfo");

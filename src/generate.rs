@@ -20,8 +20,7 @@ use crate::source::onepacenet::OnepaceNet;
 use crate::source::spykernz::SpykerNz;
 use crate::source::{DataSource, ImageKind};
 
-const SAMPLE_EXPECTED_FILENAME: &str =
-    "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv";
+const SAMPLE_EXPECTED_FILENAME: &str = "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv";
 
 pub struct Options {
     pub dry_run: bool,
@@ -293,8 +292,7 @@ fn fetch_image(
         return Ok(());
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     fs::write(path, &bytes).with_context(|| format!("writing {}", path.display()))?;
     info!(path = %path.display(), bytes = bytes.len(), "wrote {label}");
