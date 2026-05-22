@@ -21,6 +21,24 @@ impl Composite {
     pub fn new(sources: Vec<Arc<dyn DataSource>>) -> Self {
         Self { sources }
     }
+
+    /// Try each source in order; return the first `Some`, log and skip on
+    /// `Err`, fall through on `Ok(None)`. `op` is included in the warning
+    /// so a failure pinpoints which method drifted.
+    fn try_each<T>(
+        &self,
+        op: &'static str,
+        mut f: impl FnMut(&dyn DataSource) -> Result<Option<T>>,
+    ) -> Result<Option<T>> {
+        for s in &self.sources {
+            match f(s.as_ref()) {
+                Ok(Some(v)) => return Ok(Some(v)),
+                Ok(None) => continue,
+                Err(e) => warn!(source = s.name(), op, error = %e, "fetch failed"),
+            }
+        }
+        Ok(None)
+    }
 }
 
 impl DataSource for Composite {
@@ -29,52 +47,18 @@ impl DataSource for Composite {
     }
 
     fn series(&self) -> Result<Option<Series>> {
-        for s in &self.sources {
-            match s.series() {
-                Ok(Some(v)) => return Ok(Some(v)),
-                Ok(None) => continue,
-                Err(e) => warn!(source = s.name(), error = %e, "series fetch failed"),
-            }
-        }
-        Ok(None)
+        self.try_each("series", |s| s.series())
     }
 
     fn season(&self, number: u32) -> Result<Option<Season>> {
-        for s in &self.sources {
-            match s.season(number) {
-                Ok(Some(v)) => return Ok(Some(v)),
-                Ok(None) => continue,
-                Err(e) => warn!(source = s.name(), %number, error = %e, "season fetch failed"),
-            }
-        }
-        Ok(None)
+        self.try_each("season", |s| s.season(number))
     }
 
     fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
-        for s in &self.sources {
-            match s.episode(arc_normalized, episode_number) {
-                Ok(Some(v)) => return Ok(Some(v)),
-                Ok(None) => continue,
-                Err(e) => warn!(
-                    source = s.name(),
-                    arc = %arc_normalized,
-                    ep = episode_number,
-                    error = %e,
-                    "episode fetch failed"
-                ),
-            }
-        }
-        Ok(None)
+        self.try_each("episode", |s| s.episode(arc_normalized, episode_number))
     }
 
     fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
-        for s in &self.sources {
-            match s.image(kind) {
-                Ok(Some(v)) => return Ok(Some(v)),
-                Ok(None) => continue,
-                Err(e) => warn!(source = s.name(), error = %e, "image fetch failed"),
-            }
-        }
-        Ok(None)
+        self.try_each("image", |s| s.image(kind))
     }
 }
