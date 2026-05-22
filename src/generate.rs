@@ -1,10 +1,15 @@
 //! `generate` subcommand: scan a One Pace library, fetch metadata,
 //! and write Kodi-format NFO sidecars next to each video file.
+//!
+//! Two-phase: build a [`Vec<PendingWrite>`] from three planning functions,
+//! classify each one against the existing filesystem, then apply per
+//! `--force` / `--non-interactive` / interactive prompt.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::io;
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +17,7 @@ use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::matcher::{ParsedFile, is_arc_folder_name, normalize_arc};
-use crate::nfo::writer;
+use crate::nfo::writer::{self, MarkerStatus};
 use crate::scan::is_video;
 use crate::source::cache::CachedHttp;
 use crate::source::composite::Composite;
@@ -26,6 +31,12 @@ pub struct Options {
     pub dry_run: bool,
     pub cache_ttl: Duration,
     pub refresh: bool,
+    /// Overwrite conflicts (foreign files or files we wrote but the user
+    /// has since edited) without asking.
+    pub force: bool,
+    /// Don't prompt — skip conflicts instead. Used by cron/CI. Mutually
+    /// exclusive with `force`.
+    pub non_interactive: bool,
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
@@ -43,18 +54,34 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         return Ok(());
     }
 
-    write_series_assets(source.as_ref(), &root, opts.dry_run)?;
-    let report = write_episode_assets(source.as_ref(), &root, &scan.matched, opts.dry_run)?;
-    write_season_assets(source.as_ref(), &report.arc_folders, opts.dry_run)?;
+    let mut pending: Vec<PendingWrite> = Vec::new();
+    let mut episode_stats = EpisodeStats::default();
+    plan_series_assets(source.as_ref(), &root, &mut pending);
+    let arc_folders = plan_episode_assets(
+        source.as_ref(),
+        &root,
+        &scan.matched,
+        &mut pending,
+        &mut episode_stats,
+    );
+    plan_season_assets(source.as_ref(), &arc_folders, &mut pending);
+
+    let summary = apply_plan(pending, &opts)?;
 
     info!(
-        episodes = report.written,
-        unmatched = report.unmatched,
-        seasons = report.arc_folders.len(),
+        episodes = episode_stats.matched_to_source,
+        episode_fetch_failed = episode_stats.fetch_failed,
+        unmatched = episode_stats.no_source_match,
+        seasons = arc_folders.len(),
+        wrote = summary.wrote,
+        skipped = summary.skipped,
+        unchanged = summary.unchanged,
         "done"
     );
     Ok(())
 }
+
+// ---------- helpers ----------
 
 fn canonicalize_or_helpful_error(root: &Path) -> Result<PathBuf> {
     root.canonicalize().map_err(|e| {
@@ -66,9 +93,6 @@ fn canonicalize_or_helpful_error(root: &Path) -> Result<PathBuf> {
     })
 }
 
-/// If `root` looks like a library root (arc folders directly inside, name
-/// doesn't mention "one pace"), warn — we'd happily write `tvshow.nfo`
-/// there and Jellyfin would treat every arc as its own Series.
 fn warn_if_layout_looks_wrong(root: &Path) {
     let name = root
         .file_name()
@@ -76,7 +100,7 @@ fn warn_if_layout_looks_wrong(root: &Path) {
         .unwrap_or("")
         .to_lowercase();
     if name.contains("one pace") {
-        return; // looks like a series folder
+        return;
     }
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -102,134 +126,16 @@ fn warn_if_layout_looks_wrong(root: &Path) {
 
 fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Arc<dyn DataSource>> {
     let http = Arc::new(CachedHttp::new(cache_ttl)?.refresh(refresh));
-    // Order: onepace.net first (current arc list + fresh descriptions),
-    // SpykerNZ second (episodes, posters, series-level fallback).
     Ok(Arc::new(Composite::new(vec![
         Arc::new(OnepaceNet::new(http.clone())),
         Arc::new(SpykerNz::new(http)),
     ])))
 }
 
-fn write_series_assets(source: &dyn DataSource, root: &Path, dry_run: bool) -> Result<()> {
-    let Some(series) = source.series().context("fetching series metadata")? else {
-        warn!("no series-level metadata from any data source");
-        return Ok(());
-    };
-    let series_path = root.join("tvshow.nfo");
-    write(dry_run, &series_path, "tvshow.nfo", || {
-        writer::write_series(&series_path, &series)
-    })?;
-    let series_poster_path = root.join("poster.png");
-    fetch_image(
-        dry_run,
-        source,
-        ImageKind::SeriesPoster,
-        &series_poster_path,
-        "poster.png",
-    )
-}
-
-struct EpisodeReport {
-    written: usize,
-    unmatched: usize,
-    /// Maps each season number we saw an episode for back to the folder
-    /// that episode lives in. Consumed by `write_season_assets`.
-    arc_folders: HashMap<u32, PathBuf>,
-}
-
-fn write_episode_assets(
-    source: &dyn DataSource,
-    root: &Path,
-    matched: &[(PathBuf, ParsedFile)],
-    dry_run: bool,
-) -> Result<EpisodeReport> {
-    let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
-    let mut written = 0usize;
-    let mut unmatched = 0usize;
-    let total = matched.len();
-
-    for (i, (media_path, parsed)) in matched.iter().enumerate() {
-        let arc_norm = normalize_arc(&parsed.arc);
-        let Some(episode) = source
-            .episode(&arc_norm, parsed.episode)
-            .with_context(|| format!("fetching episode for {}", media_path.display()))?
-        else {
-            warn!(
-                file = %media_path.display(),
-                arc = %parsed.arc,
-                episode = parsed.episode,
-                "no metadata found for this episode"
-            );
-            unmatched += 1;
-            continue;
-        };
-
-        let nfo_path = media_path.with_extension("nfo");
-        let label = format!(
-            "S{season:02}E{number:02} ({i}/{total})",
-            season = episode.season,
-            number = episode.number,
-            i = i + 1,
-        );
-        write(dry_run, &nfo_path, &label, || {
-            writer::write_episode(&nfo_path, &episode)
-        })?;
-        written += 1;
-
-        if let Some(parent) = media_path.parent()
-            && parent != root
-        {
-            arc_folders
-                .entry(episode.season)
-                .or_insert_with(|| parent.to_path_buf());
-        }
-    }
-
-    Ok(EpisodeReport {
-        written,
-        unmatched,
-        arc_folders,
-    })
-}
-
-fn write_season_assets(
-    source: &dyn DataSource,
-    arc_folders: &HashMap<u32, PathBuf>,
-    dry_run: bool,
-) -> Result<()> {
-    for (season_num, folder) in arc_folders {
-        let Some(season) = source
-            .season(*season_num)
-            .with_context(|| format!("fetching season {season_num}"))?
-        else {
-            warn!(season = season_num, "no season metadata available");
-            continue;
-        };
-        let nfo_path = folder.join("season.nfo");
-        let label = format!("season.nfo (S{season_num:02})");
-        write(dry_run, &nfo_path, &label, || {
-            writer::write_season(&nfo_path, &season)
-        })?;
-
-        let poster_path = folder.join("poster.png");
-        let label = format!("poster.png (S{season_num:02})");
-        fetch_image(
-            dry_run,
-            source,
-            ImageKind::SeasonPoster {
-                number: *season_num,
-            },
-            &poster_path,
-            &label,
-        )?;
-    }
-    Ok(())
-}
+// ---------- scan ----------
 
 struct ScanReport {
     matched: Vec<(PathBuf, ParsedFile)>,
-    /// Total `.mkv`/`.mp4`/etc files seen, regardless of whether their name
-    /// looked like a One Pace release.
     total_videos: usize,
 }
 
@@ -273,40 +179,368 @@ fn report_empty_match(root: &Path, scan: &ScanReport) {
     }
 }
 
-fn fetch_image(
-    dry_run: bool,
-    source: &dyn DataSource,
-    kind: ImageKind,
-    path: &Path,
-    label: &str,
-) -> Result<()> {
-    let Some(bytes) = source
-        .image(kind)
-        .with_context(|| format!("fetching {label}"))?
-    else {
-        warn!(image = %label, "no image available from source");
-        return Ok(());
-    };
-    if dry_run {
-        info!(would_write = %path.display(), bytes = bytes.len(), "[dry-run] {label}");
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    }
-    fs::write(path, &bytes).with_context(|| format!("writing {}", path.display()))?;
-    info!(path = %path.display(), bytes = bytes.len(), "wrote {label}");
-    Ok(())
+// ---------- write plan ----------
+
+struct PendingWrite {
+    path: PathBuf,
+    label: String,
+    kind: Asset,
 }
 
-fn write<F>(dry_run: bool, path: &Path, label: &str, op: F) -> Result<()>
-where
-    F: FnOnce() -> Result<()>,
-{
-    if dry_run {
-        info!(would_write = %path.display(), "[dry-run] {label}");
-        Ok(())
-    } else {
-        op()
+enum Asset {
+    SeriesNfo(crate::model::Series),
+    SeasonNfo(crate::model::Season),
+    EpisodeNfo(crate::model::Episode),
+    Poster(Vec<u8>),
+}
+
+impl Asset {
+    fn execute(self, path: &Path) -> Result<()> {
+        match self {
+            Self::SeriesNfo(s) => writer::write_series(path, &s),
+            Self::SeasonNfo(s) => writer::write_season(path, &s),
+            Self::EpisodeNfo(e) => writer::write_episode(path, &e),
+            Self::Poster(bytes) => {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("creating {}", parent.display()))?;
+                }
+                fs::write(path, &bytes).with_context(|| format!("writing {}", path.display()))
+            }
+        }
     }
+}
+
+fn plan_series_assets(source: &dyn DataSource, root: &Path, pending: &mut Vec<PendingWrite>) {
+    match source.series() {
+        Ok(Some(series)) => {
+            pending.push(PendingWrite {
+                path: root.join("tvshow.nfo"),
+                label: "tvshow.nfo".into(),
+                kind: Asset::SeriesNfo(series),
+            });
+            match source.image(ImageKind::SeriesPoster) {
+                Ok(Some(bytes)) => pending.push(PendingWrite {
+                    path: root.join("poster.png"),
+                    label: "poster.png".into(),
+                    kind: Asset::Poster(bytes),
+                }),
+                Ok(None) => {}
+                Err(e) => warn!(error = %e, "fetching series poster failed"),
+            }
+        }
+        Ok(None) => warn!("no series-level metadata from any data source"),
+        Err(e) => {
+            warn!(error = %e, "fetching series metadata failed; skipping series-level assets")
+        }
+    }
+}
+
+#[derive(Default)]
+struct EpisodeStats {
+    matched_to_source: usize,
+    no_source_match: usize,
+    fetch_failed: usize,
+}
+
+fn plan_episode_assets(
+    source: &dyn DataSource,
+    root: &Path,
+    matched: &[(PathBuf, ParsedFile)],
+    pending: &mut Vec<PendingWrite>,
+    stats: &mut EpisodeStats,
+) -> HashMap<u32, PathBuf> {
+    let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
+    let total = matched.len();
+
+    for (i, (media_path, parsed)) in matched.iter().enumerate() {
+        let arc_norm = normalize_arc(&parsed.arc);
+        // Per-episode errors are logged and skipped, not propagated — a
+        // flaky upstream shouldn't poison the whole library refresh.
+        let episode = match source.episode(&arc_norm, parsed.episode) {
+            Ok(Some(ep)) => ep,
+            Ok(None) => {
+                warn!(
+                    file = %media_path.display(),
+                    arc = %parsed.arc,
+                    episode = parsed.episode,
+                    "no metadata found for this episode"
+                );
+                stats.no_source_match += 1;
+                continue;
+            }
+            Err(e) => {
+                warn!(
+                    file = %media_path.display(),
+                    arc = %parsed.arc,
+                    episode = parsed.episode,
+                    error = %e,
+                    "fetching episode metadata failed; skipping"
+                );
+                stats.fetch_failed += 1;
+                continue;
+            }
+        };
+
+        let nfo_path = media_path.with_extension("nfo");
+        let label = format!(
+            "S{season:02}E{number:02} ({i}/{total})",
+            season = episode.season,
+            number = episode.number,
+            i = i + 1,
+        );
+        if let Some(parent) = media_path.parent()
+            && parent != root
+        {
+            arc_folders
+                .entry(episode.season)
+                .or_insert_with(|| parent.to_path_buf());
+        }
+        pending.push(PendingWrite {
+            path: nfo_path,
+            label,
+            kind: Asset::EpisodeNfo(episode),
+        });
+        stats.matched_to_source += 1;
+    }
+
+    arc_folders
+}
+
+fn plan_season_assets(
+    source: &dyn DataSource,
+    arc_folders: &HashMap<u32, PathBuf>,
+    pending: &mut Vec<PendingWrite>,
+) {
+    for (season_num, folder) in arc_folders {
+        match source.season(*season_num) {
+            Ok(Some(season)) => pending.push(PendingWrite {
+                path: folder.join("season.nfo"),
+                label: format!("season.nfo (S{season_num:02})"),
+                kind: Asset::SeasonNfo(season),
+            }),
+            Ok(None) => warn!(season = season_num, "no season metadata available"),
+            Err(e) => {
+                warn!(season = season_num, error = %e, "fetching season metadata failed");
+                continue;
+            }
+        }
+        match source.image(ImageKind::SeasonPoster {
+            number: *season_num,
+        }) {
+            Ok(Some(bytes)) => pending.push(PendingWrite {
+                path: folder.join("poster.png"),
+                label: format!("poster.png (S{season_num:02})"),
+                kind: Asset::Poster(bytes),
+            }),
+            Ok(None) => {}
+            Err(e) => warn!(season = season_num, error = %e, "fetching season poster failed"),
+        }
+    }
+}
+
+// ---------- apply ----------
+
+#[derive(Debug)]
+enum WriteStatus {
+    /// Path doesn't exist. Safe.
+    Fresh,
+    /// NFO marked by us and unchanged since. Safe.
+    UpdateOurs,
+    /// NFO marked by us but the user has edited it since. Conflict.
+    UserEdited,
+    /// NFO present but doesn't carry our marker — foreign tool or hand-written. Conflict.
+    ForeignNfo,
+    /// Poster bytes on disk match what we'd write. No-op.
+    PosterUnchanged,
+    /// Poster present, bytes differ from what we'd write. Conflict.
+    PosterDiffers,
+}
+
+fn classify(p: &PendingWrite) -> WriteStatus {
+    if let Asset::Poster(new_bytes) = &p.kind {
+        if !p.path.exists() {
+            return WriteStatus::Fresh;
+        }
+        let same = match fs::read(&p.path) {
+            Ok(existing) => bytes_sha256(&existing) == bytes_sha256(new_bytes),
+            Err(_) => false,
+        };
+        return if same {
+            WriteStatus::PosterUnchanged
+        } else {
+            WriteStatus::PosterDiffers
+        };
+    }
+    if !p.path.exists() {
+        return WriteStatus::Fresh;
+    }
+    match writer::marker_status(&p.path) {
+        MarkerStatus::IntactOurs => WriteStatus::UpdateOurs,
+        MarkerStatus::EditedOurs => WriteStatus::UserEdited,
+        MarkerStatus::Absent => WriteStatus::ForeignNfo,
+    }
+}
+
+fn bytes_sha256(bytes: &[u8]) -> Vec<u8> {
+    Sha256::digest(bytes).to_vec()
+}
+
+struct ApplySummary {
+    wrote: usize,
+    skipped: usize,
+    unchanged: usize,
+}
+
+fn apply_plan(pending: Vec<PendingWrite>, opts: &Options) -> Result<ApplySummary> {
+    // Bucket writes per classification.
+    let mut safe: Vec<PendingWrite> = Vec::new();
+    let mut conflicts: Vec<(PendingWrite, WriteStatus)> = Vec::new();
+    let mut unchanged = 0usize;
+    for write in pending {
+        match classify(&write) {
+            WriteStatus::Fresh | WriteStatus::UpdateOurs => safe.push(write),
+            WriteStatus::PosterUnchanged => unchanged += 1,
+            status @ (WriteStatus::UserEdited
+            | WriteStatus::ForeignNfo
+            | WriteStatus::PosterDiffers) => conflicts.push((write, status)),
+        }
+    }
+
+    let mut summary = ApplySummary {
+        wrote: 0,
+        skipped: 0,
+        unchanged,
+    };
+
+    for write in safe {
+        execute_one(write, opts.dry_run, &mut summary)?;
+    }
+
+    if conflicts.is_empty() {
+        return Ok(summary);
+    }
+    resolve_conflicts(conflicts, opts, &mut summary)
+}
+
+fn resolve_conflicts(
+    conflicts: Vec<(PendingWrite, WriteStatus)>,
+    opts: &Options,
+    summary: &mut ApplySummary,
+) -> Result<ApplySummary> {
+    if opts.dry_run {
+        warn!(
+            "[dry-run] {} item(s) would be skipped or need a decision (foreign / user-edited / changed poster). \
+             Re-run with --force to overwrite or --non-interactive to skip them.",
+            conflicts.len()
+        );
+        for (c, status) in &conflicts {
+            info!(would_conflict = %c.path.display(), reason = ?status, "[dry-run] {}", c.label);
+        }
+        summary.skipped += conflicts.len();
+        return Ok(ApplySummary {
+            wrote: summary.wrote,
+            skipped: summary.skipped,
+            unchanged: summary.unchanged,
+        });
+    }
+    if opts.force {
+        info!(
+            "--force: overwriting {} conflicting file(s)",
+            conflicts.len()
+        );
+        for (w, _) in conflicts {
+            execute_one(w, false, summary)?;
+        }
+        return Ok(ApplySummary {
+            wrote: summary.wrote,
+            skipped: summary.skipped,
+            unchanged: summary.unchanged,
+        });
+    }
+    if opts.non_interactive {
+        warn!(
+            "--non-interactive: skipping {} conflict(s); re-run with --force to overwrite",
+            conflicts.len()
+        );
+        for (c, _) in &conflicts {
+            warn!(skipped = %c.path.display(), "  {}", c.label);
+        }
+        summary.skipped += conflicts.len();
+        return Ok(ApplySummary {
+            wrote: summary.wrote,
+            skipped: summary.skipped,
+            unchanged: summary.unchanged,
+        });
+    }
+
+    // Interactive: require a TTY. Silently skipping when piped to /dev/null
+    // is the worst outcome — the user wouldn't know conflicts existed.
+    if !io::stdin().is_terminal() {
+        bail!(
+            "{} write(s) would clobber existing files but stdin isn't a terminal — \
+             pass --force (overwrite), --non-interactive (skip), or --dry-run (preview)",
+            conflicts.len()
+        );
+    }
+
+    println!();
+    println!(
+        "{} existing file(s) would be overwritten and need confirmation:",
+        conflicts.len()
+    );
+    let preview_count = conflicts.len().min(10);
+    for (c, status) in conflicts.iter().take(preview_count) {
+        println!("  [{:?}] {}", status, c.path.display());
+    }
+    if conflicts.len() > preview_count {
+        println!("  ... and {} more", conflicts.len() - preview_count);
+    }
+    print!("Overwrite all? [y/N] ");
+    io::stdout().flush().ok();
+    let mut answer = String::new();
+    io::stdin().lock().read_line(&mut answer)?;
+    let answer = answer.trim().to_ascii_lowercase();
+    if answer == "y" || answer == "yes" {
+        for (w, _) in conflicts {
+            execute_one(w, false, summary)?;
+        }
+    } else {
+        warn!(
+            "skipped {} conflicting write(s); re-run with --force to overwrite without prompting",
+            conflicts.len()
+        );
+        summary.skipped += conflicts.len();
+    }
+    Ok(ApplySummary {
+        wrote: summary.wrote,
+        skipped: summary.skipped,
+        unchanged: summary.unchanged,
+    })
+}
+
+fn execute_one(write: PendingWrite, dry_run: bool, summary: &mut ApplySummary) -> Result<()> {
+    let bytes_hint = match &write.kind {
+        Asset::Poster(b) => Some(b.len()),
+        _ => None,
+    };
+    if dry_run {
+        match bytes_hint {
+            Some(n) => {
+                info!(would_write = %write.path.display(), bytes = n, "[dry-run] {}", write.label)
+            }
+            None => info!(would_write = %write.path.display(), "[dry-run] {}", write.label),
+        }
+        summary.wrote += 1;
+        return Ok(());
+    }
+    let path = write.path.clone();
+    let label = write.label.clone();
+    write.kind.execute(&path)?;
+    match bytes_hint {
+        Some(n) => info!(path = %path.display(), bytes = n, "wrote {label}"),
+        None => info!(path = %path.display(), "wrote {label}"),
+    }
+    summary.wrote += 1;
+    Ok(())
 }

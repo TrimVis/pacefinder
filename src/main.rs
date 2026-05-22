@@ -59,12 +59,16 @@ fn main() -> Result<()> {
             dry_run,
             cache_ttl,
             refresh,
+            force,
+            non_interactive,
         } => generate::run(
             &path,
             generate::Options {
                 dry_run,
                 cache_ttl,
                 refresh,
+                force,
+                non_interactive,
             },
         ),
     }

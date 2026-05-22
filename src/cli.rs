@@ -53,6 +53,16 @@ pub enum Command {
         /// Bypass the on-disk HTTP cache.
         #[arg(long)]
         refresh: bool,
+
+        /// Overwrite conflicting files (foreign / user-edited / changed posters)
+        /// without prompting.
+        #[arg(long)]
+        force: bool,
+
+        /// Don't prompt — skip conflicts silently. Use in scripts/CI.
+        /// Mutually exclusive with --force.
+        #[arg(long, conflicts_with = "force")]
+        non_interactive: bool,
     },
     /// Walk a media directory and report what was recognized
     Scan {
