@@ -16,13 +16,21 @@ use tracing_subscriber::EnvFilter;
 fn main() -> Result<()> {
     let args = Cli::parse();
 
+    // Compact, no timestamp, no module target — this is a CLI tool, not a
+    // log-aggregator feed.
     let filter = EnvFilter::try_new(&args.log).unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .without_time()
         .with_target(false)
+        .compact()
         .init();
 
     match args.command {
+        Command::Version => {
+            println!("pacefinder {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         Command::Scan { path } => scan::run(&path),
         Command::Reorder {
             path,
