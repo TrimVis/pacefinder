@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 use walkdir::WalkDir;
 
-const VIDEO_EXTS: &[&str] = &["mkv", "mp4", "m4v", "avi"];
+pub(crate) const VIDEO_EXTS: &[&str] = &["mkv", "mp4", "m4v", "avi"];
 
 pub fn run(root: &Path) -> Result<()> {
     let root = root
@@ -33,12 +33,11 @@ pub fn run(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn is_video(path: &Path) -> bool {
+pub(crate) fn is_video(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(|e| {
+        .is_some_and(|e| {
             let lower = e.to_ascii_lowercase();
             VIDEO_EXTS.contains(&lower.as_str())
         })
-        .unwrap_or(false)
 }

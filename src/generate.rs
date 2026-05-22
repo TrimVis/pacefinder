@@ -14,13 +14,12 @@ use tokio::fs;
 use crate::matcher::{ParsedFile, normalize_arc};
 use crate::model::ImageKind;
 use crate::nfo::writer;
+use crate::scan::is_video;
 use crate::source::DataSource;
 use crate::source::cache::CachedHttp;
 use crate::source::composite::Composite;
 use crate::source::onepacenet::OnepaceNet;
 use crate::source::spykernz::SpykerNz;
-
-const VIDEO_EXTS: &[&str] = &["mkv", "mp4", "m4v", "avi"];
 
 pub struct Options {
     pub dry_run: bool,
@@ -165,16 +164,6 @@ fn collect_matched(root: &Path) -> Vec<(PathBuf, ParsedFile)> {
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
-}
-
-fn is_video(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| {
-            let lower = e.to_ascii_lowercase();
-            VIDEO_EXTS.contains(&lower.as_str())
-        })
-        .unwrap_or(false)
 }
 
 async fn fetch_image(
