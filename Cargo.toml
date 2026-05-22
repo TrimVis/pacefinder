@@ -32,3 +32,6 @@ walkdir = "2.5.0"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[dev-dependencies]
+tempfile = "3.27.0"

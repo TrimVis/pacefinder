@@ -104,6 +104,49 @@ impl From<KodiSeason> for Season {
     }
 }
 
+impl From<Series> for KodiTvShow {
+    fn from(s: Series) -> Self {
+        KodiTvShow {
+            title: s.title,
+            showtitle: s.showtitle,
+            originaltitle: s.original_title,
+            plot: s.plot,
+            namedseasons: s
+                .named_seasons
+                .into_iter()
+                .map(|ns| KodiNamedSeason {
+                    number: ns.number,
+                    name: ns.name,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<Season> for KodiSeason {
+    fn from(s: Season) -> Self {
+        KodiSeason {
+            title: s.title,
+            seasonnumber: s.number,
+            plot: s.plot,
+        }
+    }
+}
+
+impl From<Episode> for KodiEpisode {
+    fn from(e: Episode) -> Self {
+        KodiEpisode {
+            title: e.title,
+            showtitle: e.showtitle,
+            season: e.season,
+            episode: e.number,
+            plot: e.plot,
+            premiered: e.premiered,
+            aired: e.aired,
+        }
+    }
+}
+
 impl From<KodiEpisode> for Episode {
     fn from(k: KodiEpisode) -> Self {
         Episode {
