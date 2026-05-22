@@ -1,6 +1,8 @@
 mod cli;
 mod matcher;
+mod model;
 mod scan;
+mod source;
 
 use anyhow::Result;
 use clap::Parser;
