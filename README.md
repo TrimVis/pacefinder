@@ -1,17 +1,21 @@
 # PaceFinder
 
-A CLI that generates Kodi-format NFO sidecar files and artwork for a
-[One Pace](https://onepace.net) fan-cut media library, so Jellyfin, Plex, and
-Kodi can present the arcs as proper seasons with titles, descriptions, and
-posters.
+**Run `pacefinder generate /path/to/your/library/One\ Pace` and your
+[One Pace](https://onepace.net) fan-cut files will show up as proper
+seasons in Jellyfin, Plex, and Kodi — correct titles, plots, posters,
+S/E numbering.**
+
+PaceFinder walks a One Pace media library, matches each file to its arc
+and episode, fetches metadata from multiple upstream sources, and writes
+Kodi-format NFO sidecars + posters next to your media.
 
 ## Status
 
 `pacefinder generate <series-root>` writes valid Kodi NFOs (`tvshow.nfo`,
-`season.nfo`, per-episode `.nfo`) verified end-to-end against Jellyfin
-10.11.9: series, seasons, and episodes ingest with the correct titles,
-plots, original-title, and S/E numbering. Image fetching is not yet
-implemented.
+`season.nfo`, per-episode `.nfo`) and downloads series + season poster art.
+Verified end-to-end against Jellyfin 10.11: series, seasons, and episodes
+ingest with correct titles, plots, original-title, S/E numbering, and
+posters.
 
 ## Why
 
@@ -34,15 +38,14 @@ per field. Default chain:
 
 Known additional source not yet wired: the
 [official One Pace Google Sheet](https://docs.google.com/spreadsheets/d/1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA/edit?gid=0)
-exposes the arc list with chapter ranges and pace-episode counts. It is
-publicly available as CSV via `?format=csv&gid=0`, but adds no
-descriptions or per-episode metadata over the two sources above. Adding it
+exposes the arc list with chapter ranges and pace-episode counts. Adding it
 as a fallback is straightforward.
 
-## Prerequisites
+## Install
 
 - Rust stable (1.85+, for edition 2024) — `rustup` will pick this up from
   `rust-toolchain.toml` automatically.
+- `cargo install --path .` or grab a release binary (see Releases on GitHub).
 - Docker + Docker Compose v2 (only required for the integration harness).
 
 ## Build
@@ -58,27 +61,40 @@ cargo fmt --check
 
 ```sh
 # walk a directory and list recognized One Pace files
-cargo run -- scan /path/to/onepace/library
+pacefinder scan /path/to/onepace/library
 
-# generate NFOs for every recognized file
-cargo run -- generate "/path/to/library/One Pace"
-cargo run -- generate "/path/to/library/One Pace" --dry-run
+# generate NFOs + posters for every recognized file
+pacefinder generate "/path/to/library/One Pace"
+pacefinder generate "/path/to/library/One Pace" --dry-run
+
+# wrap top-level arc folders into a series folder if your layout is flat
+pacefinder reorder /path/to/library --dry-run
+
+# inspect or wipe the metadata cache
+pacefinder cache path
+pacefinder cache clear
 ```
 
-Available subcommands:
+### Subcommands
 
 | Command | Description |
 |---|---|
-| `scan <path>` | Walk the path and list video files that would be processed. |
-| `generate <series-root>` | Fetch metadata via SpykerNZ and write Kodi NFOs next to every recognized file. |
+| `generate <series-root>` | Fetch metadata and write NFOs + posters next to every recognized file. |
+| `scan <path>` | Walk the path and list video files; useful diagnostic. |
+| `reorder <path>` | Wrap top-level arc folders inside a series folder (one-time setup if your layout is flat). |
+| `cache path` / `cache clear` | Show where cached upstream responses live, or wipe them. |
+| `version` | Print version. |
 
-`generate` flags: `--dry-run`, `--refresh` (bypass HTTP cache),
-`--cache-ttl-hours N` (default 24).
+### Flags
 
-Global flags:
-
-- `--log <directive>` — `tracing-subscriber` env filter. Defaults to `info`.
-  Also reads `PACEFINDER_LOG`.
+| Flag | Description |
+|---|---|
+| `-v` / `-vv` | More verbose: debug / trace. |
+| `-q` / `-qq` / `-qqq` | Less verbose: warn only / error only / silent. |
+| `--log <directive>` | Power-user escape: `tracing-subscriber` env filter; also `PACEFINDER_LOG`. Overrides `-v`/`-q`. |
+| `generate --dry-run` | Resolve and log writes without touching the filesystem. |
+| `generate --refresh` | Bypass the on-disk HTTP cache. |
+| `generate --cache-ttl 7d` | Cache TTL (humantime: `7d`, `24h`, `30m`). Default `7d`. |
 
 ## Required library layout
 
@@ -91,14 +107,21 @@ arc folders directly inside:
 <jellyfin-library-root>/
   One Pace/                                ← pass this to `pacefinder generate`
     tvshow.nfo                             ← written by pacefinder
+    poster.png                             ← written by pacefinder
     [One Pace][1-7] Romance Dawn [1080p]/  ← arc = season
       season.nfo                           ← written by pacefinder
+      poster.png                           ← written by pacefinder
       [One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv
       [One Pace][1] Romance Dawn 01 [1080p][D767799C].nfo  ← written by pacefinder
       ...
     [One Pace][8-21] Orange Town [1080p]/
       ...
 ```
+
+If your library is flat (arc folders at the top with no `One Pace/` wrapper),
+run `pacefinder reorder <library>` first. PaceFinder warns when it detects
+this layout to prevent the silent-failure case where each arc becomes its own
+Jellyfin series.
 
 Then in Jellyfin, add `<jellyfin-library-root>/` as a TV Shows library with
 the "Nfo" local metadata reader enabled and remote metadata fetchers off.
@@ -129,8 +152,8 @@ The Jellyfin container bind-mounts:
 To iterate:
 
 ```sh
-cargo run -- scan ../testlib              # generate / refresh NFOs
-docker compose restart jellyfin           # or trigger a library scan in the UI
+cargo run -- generate "./testlib/One Pace"   # write NFOs + posters
+docker compose restart jellyfin              # or trigger a library scan in the UI
 ```
 
 To wipe Jellyfin state for a clean test:
@@ -144,12 +167,25 @@ rm -rf docker/jellyfin-config docker/jellyfin-cache
 
 ```
 src/
-  main.rs        entry, tokio runtime, dispatch
-  cli.rs         clap argument structs
-  scan.rs        directory walking
+  main.rs         entry, tracing setup, dispatch
+  cli.rs          clap argument structs
+  generate.rs     `generate` subcommand
+  reorder.rs      `reorder` subcommand
+  scan.rs         `scan` subcommand + shared video-extension filter
+  matcher.rs      filename → ParsedFile + arc-name normalization
+  model.rs        domain types (Series, Season, Episode, NamedSeason)
+  nfo/
+    kodi.rs       Kodi NFO XML shapes (parse + serialize)
+    writer.rs     NFO write helpers (series, season, episode)
+  source/
+    mod.rs        DataSource trait, ImageKind
+    cache.rs      on-disk HTTP cache (ureq + sha256-keyed)
+    composite.rs  fallthrough source chain
+    onepacenet.rs onepace.net /watch RSC adapter
+    spykernz.rs   SpykerNZ GitHub-blob adapter
 docker/
-  compose.yaml   Jellyfin 10.11 test harness
-testlib/         (gitignored) sample One Pace media for local dev
+  compose.yaml    Jellyfin 10.11 test harness
+testlib/          (gitignored) sample One Pace media for local dev
 ```
 
 ## License
