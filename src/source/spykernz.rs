@@ -3,8 +3,10 @@
 //! Builds an in-memory index of NFO and poster paths from one GitHub Trees
 //! API call, then resolves individual files by raw URL through [`CachedHttp`].
 
+use std::cell::OnceCell;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::rc::Rc;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result, anyhow};
 use regex_lite::Regex;
@@ -22,42 +24,42 @@ const TREE_URL: &str =
 const RAW_BASE: &str = "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/";
 
 pub struct SpykerNz {
-    http: Arc<CachedHttp>,
-    index: OnceLock<Arc<Index>>,
-    series: OnceLock<Arc<Series>>,
+    http: Rc<CachedHttp>,
+    index: OnceCell<Rc<Index>>,
+    series: OnceCell<Rc<Series>>,
 }
 
 impl SpykerNz {
-    pub fn new(http: Arc<CachedHttp>) -> Self {
+    pub fn new(http: Rc<CachedHttp>) -> Self {
+        // Single-threaded by design — see top-level note about dropping Send/Sync.
         Self {
             http,
-            index: OnceLock::new(),
-            series: OnceLock::new(),
+            index: OnceCell::new(),
+            series: OnceCell::new(),
         }
     }
 
-    fn ensure_index(&self) -> Result<Arc<Index>> {
+    fn ensure_index(&self) -> Result<Rc<Index>> {
         if let Some(idx) = self.index.get() {
-            return Ok(Arc::clone(idx));
+            return Ok(Rc::clone(idx));
         }
         let json = self.http.get_string(TREE_URL)?;
         let tree: GitHubTree = serde_json::from_str(&json).context("parsing tree response")?;
         if tree.truncated {
             warn!("github tree response truncated — index may be incomplete");
         }
-        let idx = Arc::new(build_index(&tree.tree));
-        // Race-tolerant: if another thread won, discard ours.
-        let _ = self.index.set(Arc::clone(&idx));
-        Ok(Arc::clone(self.index.get().expect("just set")))
+        let idx = Rc::new(build_index(&tree.tree));
+        let _ = self.index.set(Rc::clone(&idx));
+        Ok(Rc::clone(self.index.get().expect("just set")))
     }
 
-    fn cached_series(&self) -> Result<Arc<Series>> {
+    fn cached_series(&self) -> Result<Rc<Series>> {
         if let Some(s) = self.series.get() {
-            return Ok(Arc::clone(s));
+            return Ok(Rc::clone(s));
         }
-        let s = Arc::new(self.fetch_series()?);
-        let _ = self.series.set(Arc::clone(&s));
-        Ok(Arc::clone(self.series.get().expect("just set")))
+        let s = Rc::new(self.fetch_series()?);
+        let _ = self.series.set(Rc::clone(&s));
+        Ok(Rc::clone(self.series.get().expect("just set")))
     }
 
     fn fetch_series(&self) -> Result<Series> {

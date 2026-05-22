@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::rc::Rc;
 use std::time::Duration;
 use tracing::{info, warn};
 use walkdir::WalkDir;
@@ -124,11 +124,11 @@ fn warn_if_layout_looks_wrong(root: &Path) {
     }
 }
 
-fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Arc<dyn DataSource>> {
-    let http = Arc::new(CachedHttp::new(cache_ttl)?.refresh(refresh));
-    Ok(Arc::new(Composite::new(vec![
-        Arc::new(OnepaceNet::new(http.clone())),
-        Arc::new(SpykerNz::new(http)),
+fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Rc<dyn DataSource>> {
+    let http = Rc::new(CachedHttp::new(cache_ttl)?.refresh(refresh));
+    Ok(Rc::new(Composite::new(vec![
+        Rc::new(OnepaceNet::new(http.clone())),
+        Rc::new(SpykerNz::new(http)),
     ])))
 }
 

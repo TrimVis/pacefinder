@@ -5,7 +5,7 @@
 //! onepace.net for season descriptions) and a comprehensive-but-stale
 //! source second (e.g. SpykerNZ for episode-level data and posters).
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::Result;
 use tracing::warn;
@@ -14,11 +14,11 @@ use super::{DataSource, ImageKind};
 use crate::model::{Episode, Season, Series};
 
 pub struct Composite {
-    sources: Vec<Arc<dyn DataSource>>,
+    sources: Vec<Rc<dyn DataSource>>,
 }
 
 impl Composite {
-    pub fn new(sources: Vec<Arc<dyn DataSource>>) -> Self {
+    pub fn new(sources: Vec<Rc<dyn DataSource>>) -> Self {
         Self { sources }
     }
 
@@ -144,8 +144,8 @@ mod tests {
 
     #[test]
     fn first_some_wins_and_short_circuits() {
-        let first = Arc::new(Stub::empty("first").with_series(sample_series("first wins")));
-        let second = Arc::new(Stub::empty("second").with_series(sample_series("second")));
+        let first = Rc::new(Stub::empty("first").with_series(sample_series("first wins")));
+        let second = Rc::new(Stub::empty("second").with_series(sample_series("second")));
         let composite = Composite::new(vec![first.clone(), second.clone()]);
 
         let s = composite.series().unwrap().unwrap();
@@ -157,8 +157,8 @@ mod tests {
 
     #[test]
     fn none_falls_through_to_next() {
-        let first = Arc::new(Stub::empty("empty"));
-        let second = Arc::new(Stub::empty("loaded").with_series(sample_series("second")));
+        let first = Rc::new(Stub::empty("empty"));
+        let second = Rc::new(Stub::empty("loaded").with_series(sample_series("second")));
         let composite = Composite::new(vec![first.clone(), second.clone()]);
 
         let s = composite.series().unwrap().unwrap();
@@ -169,8 +169,8 @@ mod tests {
 
     #[test]
     fn err_is_logged_and_loop_continues() {
-        let first = Arc::new(Stub::empty("broken").failing_series());
-        let second = Arc::new(Stub::empty("ok").with_series(sample_series("from-fallback")));
+        let first = Rc::new(Stub::empty("broken").failing_series());
+        let second = Rc::new(Stub::empty("ok").with_series(sample_series("from-fallback")));
         let composite = Composite::new(vec![first.clone(), second.clone()]);
 
         let s = composite.series().unwrap().unwrap();
@@ -181,8 +181,8 @@ mod tests {
 
     #[test]
     fn all_none_returns_none() {
-        let first = Arc::new(Stub::empty("a"));
-        let second = Arc::new(Stub::empty("b"));
+        let first = Rc::new(Stub::empty("a"));
+        let second = Rc::new(Stub::empty("b"));
         let composite = Composite::new(vec![first, second]);
         assert!(composite.series().unwrap().is_none());
         assert!(composite.season(1).unwrap().is_none());

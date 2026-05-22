@@ -10,7 +10,9 @@
 //! chapter range). It does NOT have per-episode titles/plots or poster
 //! images — those still come from SpykerNZ via the composite source.
 
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::cell::OnceCell;
+use std::rc::Rc;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result, anyhow, bail};
 use regex_lite::Regex;
@@ -25,8 +27,8 @@ use crate::model::{Episode, Season, Series};
 const WATCH_URL: &str = "https://onepace.net/watch";
 
 pub struct OnepaceNet {
-    http: Arc<CachedHttp>,
-    timeline: OnceLock<Arc<Timeline>>,
+    http: Rc<CachedHttp>,
+    timeline: OnceCell<Rc<Timeline>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,22 +48,22 @@ struct Timeline {
 }
 
 impl OnepaceNet {
-    pub fn new(http: Arc<CachedHttp>) -> Self {
+    pub fn new(http: Rc<CachedHttp>) -> Self {
         Self {
             http,
-            timeline: OnceLock::new(),
+            timeline: OnceCell::new(),
         }
     }
 
-    fn ensure_timeline(&self) -> Result<Arc<Timeline>> {
+    fn ensure_timeline(&self) -> Result<Rc<Timeline>> {
         if let Some(tl) = self.timeline.get() {
-            return Ok(Arc::clone(tl));
+            return Ok(Rc::clone(tl));
         }
         let body = fetch_rsc(&self.http)?;
         let segments = extract_segments(&body)?;
-        let tl = Arc::new(build_timeline(segments));
-        let _ = self.timeline.set(Arc::clone(&tl));
-        Ok(Arc::clone(self.timeline.get().expect("just set")))
+        let tl = Rc::new(build_timeline(segments));
+        let _ = self.timeline.set(Rc::clone(&tl));
+        Ok(Rc::clone(self.timeline.get().expect("just set")))
     }
 }
 
