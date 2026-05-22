@@ -62,3 +62,131 @@ impl DataSource for Composite {
         self.try_each("image", |s| s.image(kind))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{NamedSeason, Series};
+    use anyhow::anyhow;
+    use std::cell::RefCell;
+
+    /// Stub adapter: records every call and returns canned outputs.
+    struct Stub {
+        name: &'static str,
+        series: Option<Series>,
+        season: Option<Season>,
+        episode: Option<Episode>,
+        image: Option<Vec<u8>>,
+        series_err: bool,
+        calls: RefCell<Vec<&'static str>>,
+    }
+
+    impl Stub {
+        fn empty(name: &'static str) -> Self {
+            Self {
+                name,
+                series: None,
+                season: None,
+                episode: None,
+                image: None,
+                series_err: false,
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+        fn with_series(mut self, s: Series) -> Self {
+            self.series = Some(s);
+            self
+        }
+        fn failing_series(mut self) -> Self {
+            self.series_err = true;
+            self
+        }
+    }
+
+    impl DataSource for Stub {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn series(&self) -> Result<Option<Series>> {
+            self.calls.borrow_mut().push("series");
+            if self.series_err {
+                Err(anyhow!("intentional"))
+            } else {
+                Ok(self.series.clone())
+            }
+        }
+        fn season(&self, _: u32) -> Result<Option<Season>> {
+            self.calls.borrow_mut().push("season");
+            Ok(self.season.clone())
+        }
+        fn episode(&self, _: &str, _: u32) -> Result<Option<Episode>> {
+            self.calls.borrow_mut().push("episode");
+            Ok(self.episode.clone())
+        }
+        fn image(&self, _: ImageKind) -> Result<Option<Vec<u8>>> {
+            self.calls.borrow_mut().push("image");
+            Ok(self.image.clone())
+        }
+    }
+
+    fn sample_series(title: &str) -> Series {
+        Series {
+            title: title.into(),
+            showtitle: title.into(),
+            original_title: None,
+            plot: "x".into(),
+            named_seasons: vec![NamedSeason {
+                number: 1,
+                name: "1. x".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn first_some_wins_and_short_circuits() {
+        let first = Arc::new(Stub::empty("first").with_series(sample_series("first wins")));
+        let second = Arc::new(Stub::empty("second").with_series(sample_series("second")));
+        let composite = Composite::new(vec![first.clone(), second.clone()]);
+
+        let s = composite.series().unwrap().unwrap();
+        assert_eq!(s.title, "first wins");
+        // second was never asked
+        assert_eq!(*first.calls.borrow(), vec!["series"]);
+        assert!(second.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn none_falls_through_to_next() {
+        let first = Arc::new(Stub::empty("empty"));
+        let second = Arc::new(Stub::empty("loaded").with_series(sample_series("second")));
+        let composite = Composite::new(vec![first.clone(), second.clone()]);
+
+        let s = composite.series().unwrap().unwrap();
+        assert_eq!(s.title, "second");
+        assert_eq!(*first.calls.borrow(), vec!["series"]);
+        assert_eq!(*second.calls.borrow(), vec!["series"]);
+    }
+
+    #[test]
+    fn err_is_logged_and_loop_continues() {
+        let first = Arc::new(Stub::empty("broken").failing_series());
+        let second = Arc::new(Stub::empty("ok").with_series(sample_series("from-fallback")));
+        let composite = Composite::new(vec![first.clone(), second.clone()]);
+
+        let s = composite.series().unwrap().unwrap();
+        assert_eq!(s.title, "from-fallback");
+        assert_eq!(*first.calls.borrow(), vec!["series"]);
+        assert_eq!(*second.calls.borrow(), vec!["series"]);
+    }
+
+    #[test]
+    fn all_none_returns_none() {
+        let first = Arc::new(Stub::empty("a"));
+        let second = Arc::new(Stub::empty("b"));
+        let composite = Composite::new(vec![first, second]);
+        assert!(composite.series().unwrap().is_none());
+        assert!(composite.season(1).unwrap().is_none());
+        assert!(composite.episode("x", 1).unwrap().is_none());
+        assert!(composite.image(ImageKind::SeriesPoster).unwrap().is_none());
+    }
+}
