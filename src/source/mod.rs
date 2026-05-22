@@ -11,6 +11,7 @@ use async_trait::async_trait;
 
 use crate::model::{Episode, ImageKind, Season, Series};
 
+pub mod cache;
 pub mod spykernz;
 
 #[async_trait]
