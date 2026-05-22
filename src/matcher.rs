@@ -3,7 +3,7 @@
 //! Episode files follow: `[One Pace][<chapter-range>] <Arc Name> <ep#> [<res>][<CRC>].ext`
 //! Arc folders follow:   `[One Pace][<chapter-range>] <Arc Name> [<res>]`
 
-use regex::Regex;
+use regex_lite::Regex;
 use std::path::Path;
 use std::sync::LazyLock;
 

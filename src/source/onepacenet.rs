@@ -14,7 +14,7 @@ use std::sync::{Arc, LazyLock};
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
-use regex::Regex;
+use regex_lite::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::OnceCell;

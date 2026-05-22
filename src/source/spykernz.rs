@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
-use regex::Regex;
+use regex_lite::Regex;
 use serde::Deserialize;
 use std::sync::LazyLock;
 use tokio::sync::OnceCell;
