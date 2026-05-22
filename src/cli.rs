@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -8,18 +9,32 @@ use std::path::PathBuf;
     about = "Generate Kodi-format NFOs and artwork for a One Pace media library"
 )]
 pub struct Cli {
-    /// tracing-subscriber env filter. CLI takes precedence over the env
-    /// var, env var takes precedence over the default.
-    #[arg(long, global = true, env = "PACEFINDER_LOG", default_value = "info")]
-    pub log: String,
+    /// Increase verbosity: -v debug, -vv trace. Conflicts with --quiet.
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Suppress output: -q warn only, -qq error only, -qqq silent.
+    /// Conflicts with --verbose.
+    #[arg(
+        short,
+        long,
+        global = true,
+        action = clap::ArgAction::Count,
+        conflicts_with = "verbose"
+    )]
+    pub quiet: u8,
+
+    /// Power-user escape hatch: tracing-subscriber env filter string.
+    /// Overrides --verbose/--quiet. Also reads `PACEFINDER_LOG`.
+    #[arg(long, global = true, env = "PACEFINDER_LOG")]
+    pub log: Option<String>,
 
     #[command(subcommand)]
     pub command: Command,
 }
 
-// Order here is the order in `--help`. Put the primary user-facing command
-// first, then the diagnostic, then the one-time setup helper, then the
-// utilities.
+// Order here is the order in `--help`. Primary command first, then
+// diagnostic, then one-time setup, then utilities.
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Generate NFO sidecars for every recognized One Pace file under <path>
@@ -31,9 +46,9 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
 
-        /// Cache TTL in hours for upstream metadata fetches.
-        #[arg(long, default_value_t = 168)]
-        cache_ttl_hours: u64,
+        /// Cache TTL for upstream metadata fetches (humantime: 7d, 24h, 30m).
+        #[arg(long, default_value = "7d", value_parser = parse_humantime)]
+        cache_ttl: Duration,
 
         /// Bypass the on-disk HTTP cache.
         #[arg(long)]
@@ -59,4 +74,8 @@ pub enum Command {
     },
     /// Print version and exit
     Version,
+}
+
+fn parse_humantime(s: &str) -> Result<Duration, String> {
+    humantime::parse_duration(s).map_err(|e| format!("invalid duration `{s}`: {e}"))
 }
