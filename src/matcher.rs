@@ -17,6 +17,23 @@ pub struct ParsedFile {
     pub extension: String,
 }
 
+/// True if `name` looks like an arc folder: `[One Pace][<range>] <Arc> [<res>]`.
+pub fn is_arc_folder_name(name: &str) -> bool {
+    FOLDER_RE.is_match(name)
+}
+
+static FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?x)
+        ^\[One\ Pace\]
+        \[\d+(?:-\d+)?\]
+        \s+.+?
+        \s+\[[^\]]+\]$
+        ",
+    )
+    .expect("static regex")
+});
+
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
@@ -133,6 +150,17 @@ mod tests {
     #[test]
     fn rejects_non_one_pace_file() {
         assert!(ParsedFile::from_filename("Some.Other.Show.S01E01.mkv").is_none());
+    }
+
+    #[test]
+    fn recognizes_arc_folder_names() {
+        assert!(is_arc_folder_name("[One Pace][1-7] Romance Dawn [1080p]"));
+        assert!(is_arc_folder_name("[One Pace][1051-1053] Wano [720p]"));
+        assert!(!is_arc_folder_name(
+            "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv"
+        ));
+        assert!(!is_arc_folder_name("One Pace"));
+        assert!(!is_arc_folder_name("Season 1"));
     }
 
     #[test]

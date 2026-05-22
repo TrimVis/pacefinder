@@ -3,6 +3,7 @@ mod generate;
 mod matcher;
 mod model;
 mod nfo;
+mod reorder;
 mod scan;
 mod source;
 
@@ -24,6 +25,11 @@ async fn main() -> Result<()> {
 
     match args.command {
         Command::Scan { path } => scan::run(&path),
+        Command::Reorder {
+            path,
+            series_folder,
+            dry_run,
+        } => reorder::run(&path, reorder::Options { dry_run, series_folder }).await,
         Command::Generate {
             path,
             dry_run,

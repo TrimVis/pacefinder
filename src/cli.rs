@@ -22,6 +22,20 @@ pub enum Command {
         /// Root of the One Pace library to scan.
         path: PathBuf,
     },
+    /// Wrap top-level arc folders inside a series folder so the layout
+    /// matches what Jellyfin/Plex/Kodi expect.
+    Reorder {
+        /// Library root containing the arc folders.
+        path: PathBuf,
+
+        /// Name of the series wrapper folder.
+        #[arg(long, default_value = "One Pace")]
+        series_folder: String,
+
+        /// Resolve and log moves without touching the filesystem.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Generate NFO sidecars for every recognized One Pace file in `path`.
     Generate {
         /// Root of the One Pace library.
