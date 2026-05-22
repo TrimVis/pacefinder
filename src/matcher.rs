@@ -11,10 +11,6 @@ use std::sync::LazyLock;
 pub struct ParsedFile {
     pub arc: String,
     pub episode: u32,
-    pub chapter_range: String,
-    pub resolution: Option<String>,
-    pub crc32: Option<String>,
-    pub extension: String,
 }
 
 /// True if `name` looks like an arc folder: `[One Pace][<range>] <Arc> [<res>]`.
@@ -49,12 +45,12 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r"(?x)
         ^\[One\ Pace\]
-        \[(?P<range>{RANGE_BODY})\]
+        \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
         \s+(?P<ep>\d+)
-        \s+\[(?P<res>[^\]]+)\]
-        (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
-        \.(?P<ext>[A-Za-z0-9]+)$
+        \s+\[[^\]]+\]
+        (?:\[[0-9A-Fa-f]{{8}}\])?
+        \.[A-Za-z0-9]+$
         "
     ))
     .expect("static regex")
@@ -67,11 +63,11 @@ static FILE_RE_SINGLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r"(?x)
         ^\[One\ Pace\]
-        \[(?P<range>{RANGE_BODY})\]
+        \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
-        \s+\[(?P<res>[^\]]+)\]
-        (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
-        \.(?P<ext>[A-Za-z0-9]+)$
+        \s+\[[^\]]+\]
+        (?:\[[0-9A-Fa-f]{{8}}\])?
+        \.[A-Za-z0-9]+$
         "
     ))
     .expect("static regex")
@@ -88,20 +84,12 @@ impl ParsedFile {
             return Some(Self {
                 arc: caps["arc"].trim().to_string(),
                 episode: caps["ep"].parse().ok()?,
-                chapter_range: caps["range"].to_string(),
-                resolution: Some(caps["res"].to_string()),
-                crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
-                extension: caps["ext"].to_string(),
             });
         }
         let caps = FILE_RE_SINGLE.captures(name)?;
         Some(Self {
             arc: caps["arc"].trim().to_string(),
             episode: 1,
-            chapter_range: caps["range"].to_string(),
-            resolution: Some(caps["res"].to_string()),
-            crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
-            extension: caps["ext"].to_string(),
         })
     }
 }
@@ -138,17 +126,12 @@ mod tests {
             .unwrap();
         assert_eq!(p.arc, "Romance Dawn");
         assert_eq!(p.episode, 1);
-        assert_eq!(p.chapter_range, "1");
-        assert_eq!(p.resolution.as_deref(), Some("1080p"));
-        assert_eq!(p.crc32.as_deref(), Some("D767799C"));
-        assert_eq!(p.extension, "mkv");
     }
 
     #[test]
     fn parses_chapter_range() {
         let p = ParsedFile::from_filename("[One Pace][2-3] Romance Dawn 02 [1080p][ABCD1234].mkv")
             .unwrap();
-        assert_eq!(p.chapter_range, "2-3");
         assert_eq!(p.episode, 2);
     }
 
@@ -165,15 +148,15 @@ mod tests {
     #[test]
     fn parses_filename_without_crc() {
         let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p].mkv").unwrap();
-        assert_eq!(p.crc32, None);
         assert_eq!(p.episode, 1);
     }
 
     #[test]
-    fn parses_uppercase_crc_consistently() {
-        let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv")
-            .unwrap();
-        assert_eq!(p.crc32.as_deref(), Some("D767799C"));
+    fn accepts_lowercase_crc() {
+        assert!(
+            ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv")
+                .is_some()
+        );
     }
 
     #[test]
@@ -185,7 +168,6 @@ mod tests {
     fn parses_multi_chapter_range_with_comma() {
         let p =
             ParsedFile::from_filename("[One Pace][42,22] Gaimon 01 [1080p][0C2DBF75].mkv").unwrap();
-        assert_eq!(p.chapter_range, "42,22");
         assert_eq!(p.arc, "Gaimon");
         assert_eq!(p.episode, 1);
     }
@@ -208,7 +190,6 @@ mod tests {
         .unwrap();
         assert_eq!(p.arc, "The Adventures of Buggy's Crew");
         assert_eq!(p.episode, 1);
-        assert_eq!(p.chapter_range, "35-75");
     }
 
     #[test]
