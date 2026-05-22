@@ -1,4 +1,5 @@
 mod cli;
+mod matcher;
 mod scan;
 
 use anyhow::Result;
