@@ -1,6 +1,7 @@
 mod cli;
 mod matcher;
 mod model;
+mod nfo;
 mod scan;
 mod source;
 
