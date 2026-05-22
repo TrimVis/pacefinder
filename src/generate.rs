@@ -11,10 +11,9 @@ use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::matcher::{ParsedFile, normalize_arc};
-use crate::model::ImageKind;
 use crate::nfo::writer;
 use crate::scan::is_video;
-use crate::source::DataSource;
+use crate::source::{DataSource, ImageKind};
 use crate::source::cache::CachedHttp;
 use crate::source::composite::Composite;
 use crate::source::onepacenet::OnepaceNet;

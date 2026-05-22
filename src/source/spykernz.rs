@@ -11,10 +11,10 @@ use regex_lite::Regex;
 use serde::Deserialize;
 use tracing::{debug, warn};
 
-use super::DataSource;
 use super::cache::CachedHttp;
+use super::{DataSource, ImageKind};
 use crate::matcher::normalize_arc;
-use crate::model::{Episode, ImageKind, Season, Series};
+use crate::model::{Episode, Season, Series};
 use crate::nfo::kodi;
 
 const TREE_URL: &str =

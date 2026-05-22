@@ -10,8 +10,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use tracing::warn;
 
-use super::DataSource;
-use crate::model::{Episode, ImageKind, Season, Series};
+use super::{DataSource, ImageKind};
+use crate::model::{Episode, Season, Series};
 
 pub struct Composite {
     sources: Vec<Arc<dyn DataSource>>,

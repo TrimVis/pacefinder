@@ -38,9 +38,3 @@ pub struct Episode {
     pub premiered: Option<String>,
     pub aired: Option<String>,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ImageKind {
-    SeriesPoster,
-    SeasonPoster { number: u32 },
-}

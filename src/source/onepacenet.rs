@@ -18,9 +18,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::debug;
 
-use super::DataSource;
 use super::cache::CachedHttp;
-use crate::model::{Episode, ImageKind, Season, Series};
+use super::{DataSource, ImageKind};
+use crate::model::{Episode, Season, Series};
 
 const WATCH_URL: &str = "https://onepace.net/watch";
 

@@ -7,14 +7,23 @@
 
 use anyhow::Result;
 
-use crate::model::{Episode, ImageKind, Season, Series};
+use crate::model::{Episode, Season, Series};
 
 pub mod cache;
 pub mod composite;
 pub mod onepacenet;
 pub mod spykernz;
 
-pub trait DataSource: Send + Sync {
+/// Which on-disk image kind the caller wants. Lives next to the trait that
+/// dispatches on it rather than in `model` — it's an adapter selector, not
+/// a piece of domain data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ImageKind {
+    SeriesPoster,
+    SeasonPoster { number: u32 },
+}
+
+pub trait DataSource {
     /// Human-readable adapter name, useful in logs.
     fn name(&self) -> &'static str;
 
