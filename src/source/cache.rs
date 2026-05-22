@@ -7,15 +7,15 @@
 
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
-use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{debug, trace};
+use ureq::Agent;
 
 pub struct CachedHttp {
-    client: Client,
+    agent: Agent,
     cache_dir: PathBuf,
     ttl: Duration,
     refresh: bool,
@@ -28,12 +28,12 @@ impl CachedHttp {
         let cache_dir = dirs.cache_dir().join("http");
         fs::create_dir_all(&cache_dir)
             .with_context(|| format!("creating cache dir {}", cache_dir.display()))?;
-        let client = Client::builder()
+        let agent: Agent = Agent::config_builder()
             .user_agent(concat!("pacefinder/", env!("CARGO_PKG_VERSION")))
             .build()
-            .context("building http client")?;
+            .into();
         Ok(Self {
-            client,
+            agent,
             cache_dir,
             ttl,
             refresh: false,
@@ -65,21 +65,18 @@ impl CachedHttp {
         }
 
         debug!(%url, "fetching");
-        let mut req = self.client.get(url);
+        let mut req = self.agent.get(url);
         for (k, v) in headers {
             req = req.header(*k, *v);
         }
-        let resp = req
-            .send()
-            .with_context(|| format!("GET {url}"))?
-            .error_for_status()
-            .with_context(|| format!("status for {url}"))?;
+        let mut resp = req.call().with_context(|| format!("GET {url}"))?;
         let bytes = resp
-            .bytes()
+            .body_mut()
+            .read_to_vec()
             .with_context(|| format!("body for {url}"))?;
         fs::write(&path, &bytes)
             .with_context(|| format!("writing cache {}", path.display()))?;
-        Ok(bytes.to_vec())
+        Ok(bytes)
     }
 
     pub fn get_string(&self, url: &str) -> Result<String> {
