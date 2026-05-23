@@ -184,6 +184,11 @@ pacefinder generate "/path/to/library/One Pace" --dry-run
 # wrap top-level arc folders into a series folder if your layout is flat
 pacefinder reorder /path/to/library --dry-run
 
+# tidy orphan arc folders (rmdir if empty, .ignore if foreign content)
+pacefinder cleanup "/path/to/library/One Pace" --dry-run
+pacefinder cleanup "/path/to/library/One Pace"
+pacefinder cleanup "/path/to/library/One Pace" --remove  # undo: delete our .ignore files
+
 # inspect or wipe the metadata cache
 pacefinder cache path
 pacefinder cache clear
@@ -196,6 +201,7 @@ pacefinder cache clear
 | `generate <series-root>` | Fetch metadata and write NFOs + posters next to every recognized file. |
 | `scan <path>` | Walk the path and list video files; useful diagnostic. |
 | `reorder <path>` | Wrap top-level arc folders inside a series folder (one-time setup if your layout is flat). |
+| `cleanup <series-root>` | Tidy orphan arc folders: `rmdir` if empty, write `.ignore` if they hold only foreign content. `--remove` undoes our `.ignore` writes. |
 | `cache path` / `cache clear` | Show where cached upstream responses live, or wipe them. |
 | `version` | Print version. |
 
@@ -239,6 +245,26 @@ Jellyfin series.
 
 Then in Jellyfin, add `<jellyfin-library-root>/` as a TV Shows library with
 the "Nfo" local metadata reader enabled and remote metadata fetchers off.
+
+### When to run `cleanup`
+
+Reach for `pacefinder cleanup <series-root>` after a successful `generate`
+run when either:
+
+- a previous tagging tool (Sonarr, tinyMediaManager, etc.) left foreign
+  `*.nfo` files inside arc folders that pacefinder didn't match — those
+  folders still show up in Jellyfin as ghost seasons. `cleanup` drops a
+  `.ignore` so Jellyfin skips them without you having to delete anyone's
+  data; or
+- pacefinder has matched everything it can, but a few empty arc folders
+  remain (stale rename targets, scratch dirs). `cleanup` `rmdir`s them.
+
+`cleanup` never touches folders that contain at least one pacefinder-written
+`.nfo`, never deletes media files, and is reversible for the `.ignore` case
+via `pacefinder cleanup <series-root> --remove`. After applying, trigger a
+Jellyfin library scan; if ghost seasons persist, remove + re-add the library
+in Jellyfin's admin UI (this is a Jellyfin internals issue, not something
+the CLI can fix from outside).
 
 ## Dev loop with Jellyfin 10.11
 

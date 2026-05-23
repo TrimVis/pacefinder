@@ -1,3 +1,4 @@
+mod cleanup;
 mod cli;
 mod generate;
 mod matcher;
@@ -54,6 +55,11 @@ fn main() -> Result<()> {
                 series_folder,
             },
         ),
+        Command::Cleanup {
+            path,
+            dry_run,
+            remove,
+        } => cleanup::run(&path, cleanup::Options { dry_run, remove }),
         Command::Generate {
             path,
             dry_run,
