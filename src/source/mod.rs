@@ -12,6 +12,7 @@ use crate::model::{Episode, Season, Series};
 pub mod cache;
 pub mod composite;
 pub mod onepacenet;
+pub mod sheet;
 pub mod spykernz;
 
 /// Which on-disk image kind the caller wants. Lives next to the trait that
