@@ -22,10 +22,8 @@ composing the results.
    — hand-maintained NFO bundle. Provides series metadata, per-episode
    titles/plots/airdates, and poster artwork. Last updated Jan 2024, so
    newer arcs fall through to the other sources.
-3. **[One Pace Google Sheet](https://docs.google.com/spreadsheets/d/1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA/edit?gid=0)**
-   *(provenance unverified — looks community-tracked, no claim of official
-   One Pace endorsement)* — per-arc episode lists keyed by MKV CRC32. We
-   use it two ways:
+3. **A community-tracked [One Pace Google Sheet](https://docs.google.com/spreadsheets/d/1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA/edit?gid=0)**
+   — per-arc episode lists keyed by MKV CRC32. We use it two ways:
    - **CRC oracle:** when a file's CRC matches a sheet entry, override
      filename-derived arc + episode with the sheet's authoritative mapping.
    - **Episode synthesis:** when SpykerNZ has no rich data for an arc,

@@ -1,7 +1,6 @@
-//! Adapter for the community-tracked One Pace Google Sheet.
+//! Adapter for a community-tracked One Pace Google Sheet.
 //!
-//! Provenance is unclear (no claim of official One Pace project endorsement),
-//! but the spreadsheet tracks per-arc episode lists keyed
+//! The spreadsheet tracks per-arc episode lists keyed
 //! by MKV CRC32. We use it for two purposes:
 //!
 //! 1. As a `DataSource`, synthesizing minimal `Episode` records from the
