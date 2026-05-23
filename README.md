@@ -36,10 +36,26 @@ per field. Default chain:
    does not cover the Egghead split or newer arcs — those fall through to
    onepace.net.
 
-Known additional source not yet wired: the
-[official One Pace Google Sheet](https://docs.google.com/spreadsheets/d/1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA/edit?gid=0)
-exposes the arc list with chapter ranges and pace-episode counts. Adding it
-as a fallback is straightforward.
+3. **[Official One Pace Google Sheet](https://docs.google.com/spreadsheets/d/1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA/edit?gid=0)**
+   — community-maintained per-arc episode lists keyed by MKV CRC32. We use
+   it for two things: (a) when a file's CRC matches a sheet entry, we
+   override the filename-derived arc and episode index with the sheet's
+   authoritative mapping; (b) when SpykerNZ has no rich data for an arc,
+   the sheet synthesizes minimal `Episode` records from its
+   chapter/episode/release-date columns.
+
+**Coverage caveat for the sheet.** The sheet lists CRCs for the **latest
+re-encode** of each episode; older releases in your library will not match
+by CRC and will fall back to the filename-derived arc + episode-number path
+(which is fine — that's the original behavior). If your library is mostly
+recent encodes, CRC override will fire often; if mostly older, it will
+mostly be a no-op. Either way the data still flows from SpykerNZ + sheet
+synthesis, so coverage doesn't degrade.
+
+**Arc-name aliases** (e.g. "Whiskey Peak" ↔ "Whisky Peak", "Arabasta" ↔
+"Alabasta", "Wano Act 1" ↔ "Wano") live in two small maps:
+`src/source/spykernz.rs::arc_alias` and `src/source/sheet.rs::arc_alias`.
+Add new entries as the community renames things.
 
 ## Install
 
@@ -266,6 +282,30 @@ Jellyfin library scan; if ghost seasons persist, remove + re-add the library
 in Jellyfin's admin UI (this is a Jellyfin internals issue, not something
 the CLI can fix from outside).
 
+## Troubleshooting Jellyfin
+
+**My re-run didn't update the metadata in Jellyfin.** A library scan in
+Jellyfin discovers new/moved files but does **not** re-parse NFOs for items
+already in its database. When pacefinder rewrites an NFO (because of a new
+release or upstream change), Jellyfin won't pick up the changes on a plain
+library scan. Force it with one of:
+
+- **In the UI:** right-click the *One Pace* series → *Refresh metadata* →
+  pick *Replace all metadata* + tick *Replace existing images*.
+- **Via API:**
+  ```sh
+  curl -X POST -H "Authorization: MediaBrowser Token=$TOKEN" \
+    "http://<host>:8096/Items/$SERIES_ID/Refresh?metadataRefreshMode=FullRefresh&replaceAllMetadata=true&imageRefreshMode=FullRefresh&replaceAllImages=true&recursive=true"
+  ```
+  `$SERIES_ID` comes from `GET /Items?IncludeItemTypes=Series&recursive=true`.
+
+**Ghost seasons with weird numbers like `Season 155217`.** Earlier scans
+registered arc folders as seasons before pacefinder could write `season.nfo`.
+Run `pacefinder cleanup <series-root>` to remove or `.ignore` the orphans,
+then trigger a library scan. If the ghosts persist, the Jellyfin DB is
+holding cached entries — remove and re-add the library in Dashboard →
+Libraries.
+
 ## Dev loop with Jellyfin 10.11
 
 The repo ships a Docker Compose harness so you can verify generated NFOs are
@@ -311,6 +351,7 @@ src/
   cli.rs          clap argument structs
   generate.rs     `generate` subcommand
   reorder.rs      `reorder` subcommand
+  cleanup.rs      `cleanup` subcommand (rmdir empty / .ignore foreign)
   scan.rs         `scan` subcommand + shared video-extension filter
   matcher.rs      filename → ParsedFile + arc-name normalization
   model.rs        domain types (Series, Season, Episode, NamedSeason)
@@ -323,6 +364,7 @@ src/
     composite.rs  fallthrough source chain
     onepacenet.rs onepace.net /watch RSC adapter
     spykernz.rs   SpykerNZ GitHub-blob adapter
+    sheet.rs      Google Sheet adapter (CRC oracle + episode synthesis)
 docker/
   compose.yaml    Jellyfin 10.11 test harness
 testlib/          (gitignored) sample One Pace media for local dev
