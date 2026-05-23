@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 pub struct ParsedFile {
     pub arc: String,
     pub episode: u32,
+    pub crc32: Option<String>,
 }
 
 /// True if `name` looks like an arc folder: `[One Pace][<range>] <Arc> [<res>]`.
@@ -49,7 +50,7 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
         \s+(?P<arc>.+?)
         \s+(?P<ep>\d+)
         \s+\[[^\]]+\]
-        (?:\[[0-9A-Fa-f]{{8}}\])?
+        (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.[A-Za-z0-9]+$
         "
     ))
@@ -66,7 +67,7 @@ static FILE_RE_SINGLE: LazyLock<Regex> = LazyLock::new(|| {
         \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
         \s+\[[^\]]+\]
-        (?:\[[0-9A-Fa-f]{{8}}\])?
+        (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.[A-Za-z0-9]+$
         "
     ))
@@ -84,12 +85,14 @@ impl ParsedFile {
             return Some(Self {
                 arc: caps["arc"].trim().to_string(),
                 episode: caps["ep"].parse().ok()?,
+                crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
             });
         }
         let caps = FILE_RE_SINGLE.captures(name)?;
         Some(Self {
             arc: caps["arc"].trim().to_string(),
             episode: 1,
+            crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
         })
     }
 }
@@ -146,9 +149,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_filename_without_crc() {
+    fn parses_filename_without_crc_has_none() {
         let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p].mkv").unwrap();
-        assert_eq!(p.episode, 1);
+        assert!(p.crc32.is_none());
     }
 
     #[test]
@@ -157,6 +160,14 @@ mod tests {
             ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv")
                 .is_some()
         );
+    }
+
+    #[test]
+    fn parses_uppercase_crc_consistently() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv",
+        ).unwrap();
+        assert_eq!(p.crc32.as_deref(), Some("D767799C"));
     }
 
     #[test]
