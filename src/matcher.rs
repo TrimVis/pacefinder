@@ -164,9 +164,8 @@ mod tests {
 
     #[test]
     fn parses_uppercase_crc_consistently() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv",
-        ).unwrap();
+        let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][d767799c].mkv")
+            .unwrap();
         assert_eq!(p.crc32.as_deref(), Some("D767799C"));
     }
 

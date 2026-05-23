@@ -594,10 +594,7 @@ mod tests {
 
     #[test]
     fn pick_arc_falls_back_to_label_when_header_empty() {
-        assert_eq!(
-            pick_arc(Some(""), "Wano 01").as_deref(),
-            Some("Wano")
-        );
+        assert_eq!(pick_arc(Some(""), "Wano 01").as_deref(), Some("Wano"));
         assert_eq!(
             pick_arc(None, "Long Ring Long Land 04").as_deref(),
             Some("Long Ring Long Land")
