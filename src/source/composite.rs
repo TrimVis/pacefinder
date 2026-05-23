@@ -61,6 +61,10 @@ impl DataSource for Composite {
     fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>> {
         self.try_each("image", |s| s.image(kind))
     }
+
+    fn identify_by_crc(&self, crc: &str) -> Result<Option<(String, u32)>> {
+        self.try_each("identify_by_crc", |s| s.identify_by_crc(crc))
+    }
 }
 
 #[cfg(test)]

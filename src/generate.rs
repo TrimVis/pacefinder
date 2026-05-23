@@ -22,6 +22,7 @@ use crate::scan::is_video;
 use crate::source::cache::CachedHttp;
 use crate::source::composite::Composite;
 use crate::source::onepacenet::OnepaceNet;
+use crate::source::sheet::GoogleSheet;
 use crate::source::spykernz::SpykerNz;
 use crate::source::{DataSource, ImageKind};
 
@@ -126,9 +127,15 @@ fn warn_if_layout_looks_wrong(root: &Path) {
 
 fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Rc<dyn DataSource>> {
     let http = Rc::new(CachedHttp::new(cache_ttl)?.refresh(refresh));
+    // Order:
+    //   - onepace.net first  — current arc list + fresh season descriptions
+    //   - SpykerNZ second    — rich episode titles/plots + series + posters
+    //   - GoogleSheet third  — CRC-keyed file identification + synthesized
+    //                          episode fallback for arcs SpykerNZ doesn't cover
     Ok(Rc::new(Composite::new(vec![
         Rc::new(OnepaceNet::new(http.clone())),
-        Rc::new(SpykerNz::new(http)),
+        Rc::new(SpykerNz::new(http.clone())),
+        Rc::new(GoogleSheet::new(http)),
     ])))
 }
 
@@ -254,16 +261,24 @@ fn plan_episode_assets(
     let total = matched.len();
 
     for (i, (media_path, parsed)) in matched.iter().enumerate() {
-        let arc_norm = normalize_arc(&parsed.arc);
+        // Prefer CRC-based identification (Google Sheet) when the filename
+        // has a CRC — that's the canonical (arc, episode) for the exact
+        // file. Fall back to filename-derived arc + episode otherwise.
+        let (arc_norm, episode_number) = parsed
+            .crc32
+            .as_deref()
+            .and_then(|crc| source.identify_by_crc(crc).ok().flatten())
+            .unwrap_or_else(|| (normalize_arc(&parsed.arc), parsed.episode));
+
         // Per-episode errors are logged and skipped, not propagated — a
         // flaky upstream shouldn't poison the whole library refresh.
-        let episode = match source.episode(&arc_norm, parsed.episode) {
+        let episode = match source.episode(&arc_norm, episode_number) {
             Ok(Some(ep)) => ep,
             Ok(None) => {
                 warn!(
                     file = %media_path.display(),
-                    arc = %parsed.arc,
-                    episode = parsed.episode,
+                    arc = %arc_norm,
+                    episode = episode_number,
                     "no metadata found for this episode"
                 );
                 stats.no_source_match += 1;
@@ -272,8 +287,8 @@ fn plan_episode_assets(
             Err(e) => {
                 warn!(
                     file = %media_path.display(),
-                    arc = %parsed.arc,
-                    episode = parsed.episode,
+                    arc = %arc_norm,
+                    episode = episode_number,
                     error = %e,
                     "fetching episode metadata failed; skipping"
                 );

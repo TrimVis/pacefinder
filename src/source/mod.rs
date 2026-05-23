@@ -42,4 +42,12 @@ pub trait DataSource {
 
     /// Image bytes for the given kind, if available.
     fn image(&self, kind: ImageKind) -> Result<Option<Vec<u8>>>;
+
+    /// Map a file's CRC32 (uppercase hex) to its canonical
+    /// `(normalized_arc_name, episode_number)` if this source has such an
+    /// index. Default returns `Ok(None)` — only the Google Sheet adapter
+    /// has CRC-keyed data today.
+    fn identify_by_crc(&self, _crc: &str) -> Result<Option<(String, u32)>> {
+        Ok(None)
+    }
 }

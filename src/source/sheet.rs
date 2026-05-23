@@ -16,12 +16,6 @@
 //! is User-Agent-gated so we identify as a browser), then fetch each tab's
 //! data via the public `gviz/tq` JSONP endpoint.
 
-// This adapter is not yet wired into the `Composite` chain — the integration
-// step happens in a follow-up commit. Until then, the chain rooted at
-// `GoogleSheet::new` is unreachable from `main`, so silence the dead-code
-// lints for the whole module.
-#![allow(dead_code)]
-
 use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -131,7 +125,11 @@ impl DataSource for GoogleSheet {
 
     fn episode(&self, arc_normalized: &str, episode_number: u32) -> Result<Option<Episode>> {
         let index = self.ensure_index()?;
-        let Some(arc_entries) = index.by_arc.get(arc_normalized) else {
+        // Try the name as-is, then a small alias map (handles
+        // Arabasta/Alabasta and Wano Act 1/Wano spelling drift between
+        // the user's library and the sheet).
+        let canonical = arc_alias(arc_normalized).unwrap_or(arc_normalized);
+        let Some(arc_entries) = index.by_arc.get(canonical) else {
             return Ok(None);
         };
         let Some(entry) = arc_entries
@@ -141,6 +139,20 @@ impl DataSource for GoogleSheet {
             return Ok(None);
         };
         Ok(Some(synthesize_episode(entry)))
+    }
+
+    fn identify_by_crc(&self, crc: &str) -> Result<Option<(String, u32)>> {
+        self.lookup_arc_ep_by_crc(crc)
+    }
+}
+
+/// Spelling drift between user folder names and the sheet's canonical
+/// arc names. Apply on lookup; keep small.
+fn arc_alias(normalized: &str) -> Option<&'static str> {
+    match normalized {
+        "arabasta" => Some("alabasta"),
+        "wano act 1" => Some("wano"),
+        _ => None,
     }
 }
 
