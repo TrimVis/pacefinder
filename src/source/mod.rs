@@ -1,9 +1,9 @@
 //! Pluggable metadata data sources.
 //!
 //! A `DataSource` knows how to answer queries about One Pace's series,
-//! seasons, episodes, and images. The first implementation wraps the
-//! community-maintained SpykerNZ Plex dataset; future adapters can live
-//! in this module or in external crates that implement the trait.
+//! seasons, episodes, and images. Three adapters ship in-tree
+//! (`onepacenet`, `spykernz`, `sheet`); `default_chain` composes them
+//! via `composite::Composite` so callers see one combined source.
 
 use anyhow::Result;
 use std::rc::Rc;

@@ -6,9 +6,12 @@
 //! header (smaller than the HTML), locate the line containing the
 //! `timeline.segments` JSON, strip the `<hex>:` RSC prefix, and parse.
 //!
-//! Coverage: this source provides season-level metadata only (title, plot,
-//! chapter range). It does NOT have per-episode titles/plots or poster
-//! images — those still come from SpykerNZ via the composite source.
+//! Also fetches `/releases` for the `download` subcommand — see
+//! `fetch_releases` and `extract_releases`.
+//!
+//! Coverage: provides season-level metadata only (title, plot, chapter
+//! range). It does NOT have per-episode titles/plots or poster images —
+//! those still come from SpykerNZ via the composite source.
 
 use std::cell::OnceCell;
 use std::rc::Rc;

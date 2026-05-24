@@ -334,7 +334,10 @@ fn plan_episode_assets(
 
 /// For each (arc, episode) slot, pick the one file whose NFO we'll
 /// actually emit. Extended wins when both a regular and Extended cut
-/// exist; warns on the discarded file so the user can act.
+/// exist; warns on the discarded file so the user can act. When two
+/// files share the same variant (true dup), keeps whichever was inserted
+/// first — HashMap iteration order is non-deterministic across runs, so
+/// the warning may name a different "kept" file each time.
 fn pick_winning_files(matched: &[(PathBuf, ParsedFile)]) -> Vec<&(PathBuf, ParsedFile)> {
     use std::collections::hash_map::Entry;
     let mut slots: HashMap<(String, u32), &(PathBuf, ParsedFile)> = HashMap::new();

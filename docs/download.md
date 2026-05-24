@@ -88,6 +88,11 @@ After queueing each torrent we write an `episode.nfo` at
 Jellyfin doesn't overwrite it once the .mkv arrives). Series/season NFOs
 and existing-NFO overwrites are `generate`'s job.
 
+With `--save-path-map`, the NFO is written to the **host-side** path
+(where pacefinder lives) while the torrent's `save_path` metadata uses
+the container-side path (where qBittorrent will land the .mkv). Same
+underlying directory via the bind mount — different POV per writer.
+
 ## Extended cuts (`--prefer-extended`)
 
 Some episodes ship as both a regular release and an Extended cut. By

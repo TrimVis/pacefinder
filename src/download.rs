@@ -409,6 +409,10 @@ fn short_magnet(m: &str) -> String {
     m.chars().take(80).collect()
 }
 
+/// `save_path` must be the **host-side** path. NFOs are written from
+/// pacefinder's filesystem POV; passing the qBittorrent-translated path
+/// would fail under `--save-path-map` since the container path doesn't
+/// exist on the host.
 fn prepopulate_one(
     source: &dyn DataSource,
     save_path: &Path,
