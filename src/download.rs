@@ -31,6 +31,7 @@ pub struct Options {
     pub dry_run: bool,
     pub prepopulate_nfo: bool,
     pub requeue_existing: bool,
+    pub prefer_extended: bool,
     pub only_arc: Option<String>,
     /// `HOST=CONTAINER` — translate save paths from pacefinder's view to
     /// qBittorrent's view when they differ (Docker mount tables etc.).
@@ -120,7 +121,12 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     }
 
     // 2 + 3. Filter by resolution + only_arc; collapse to best-per-episode.
-    let chosen = pick_best_per_episode(releases, max_height, opts.only_arc.as_deref());
+    let chosen = pick_best_per_episode(
+        releases,
+        max_height,
+        opts.only_arc.as_deref(),
+        opts.prefer_extended,
+    );
     info!(
         count = chosen.len(),
         "candidate releases after resolution/arc filter"
@@ -278,10 +284,16 @@ struct RunStats {
 
 /// Group releases by (arc, episode), apply the resolution cap, and within
 /// each group keep the highest-resolution release that still fits.
+///
+/// When `prefer_extended` is false, Extended releases are filtered out
+/// entirely — users only get them by opting in. When true, an Extended
+/// release in a bucket wins over any regular sibling, regardless of
+/// height (preference > resolution cap).
 fn pick_best_per_episode(
     releases: Vec<Release>,
     max_height: u32,
     only_arc: Option<&str>,
+    prefer_extended: bool,
 ) -> Vec<Release> {
     let only_arc_norm = only_arc.map(|s| s.to_ascii_lowercase());
     let mut buckets: HashMap<(String, u32), Vec<Release>> = HashMap::new();
@@ -289,6 +301,10 @@ fn pick_best_per_episode(
         let Some(parsed) = r.parsed.as_ref() else {
             continue;
         };
+        // Without opt-in, Extended cuts are out of scope.
+        if !prefer_extended && parsed.extended {
+            continue;
+        }
         if let Some(needle) = &only_arc_norm
             && !parsed.arc.to_ascii_lowercase().contains(needle)
         {
@@ -305,7 +321,20 @@ fn pick_best_per_episode(
     }
     let mut out: Vec<Release> = buckets
         .into_values()
-        .filter_map(|group| group.into_iter().max_by_key(|r| r.height().unwrap_or(0)))
+        .filter_map(|group| {
+            // With prefer_extended, any Extended in the bucket wins outright;
+            // tiebreak among Extended-or-non-Extended siblings is max height.
+            if prefer_extended
+                && let Some(ext) = group
+                    .iter()
+                    .filter(|r| r.parsed.as_ref().is_some_and(|p| p.extended))
+                    .max_by_key(|r| r.height().unwrap_or(0))
+                    .cloned()
+            {
+                return Some(ext);
+            }
+            group.into_iter().max_by_key(|r| r.height().unwrap_or(0))
+        })
         .collect();
     out.sort_by(|a, b| a.filename.cmp(&b.filename));
     out
@@ -651,6 +680,7 @@ mod tests {
             ],
             1080,
             None,
+            false,
         );
         assert_eq!(chosen.len(), 1);
         assert_eq!(
@@ -668,6 +698,7 @@ mod tests {
             ],
             720,
             None,
+            false,
         );
         assert_eq!(chosen.len(), 1);
         assert_eq!(
@@ -678,7 +709,8 @@ mod tests {
 
     #[test]
     fn pick_best_empty_when_all_above_cap() {
-        let chosen = pick_best_per_episode(vec![release("Wano", 1, "1080p", "AAA")], 480, None);
+        let chosen =
+            pick_best_per_episode(vec![release("Wano", 1, "1080p", "AAA")], 480, None, false);
         assert!(chosen.is_empty());
     }
 
@@ -691,6 +723,7 @@ mod tests {
             ],
             1080,
             None,
+            false,
         );
         assert_eq!(chosen.len(), 2);
     }
@@ -704,6 +737,7 @@ mod tests {
             ],
             1080,
             Some("wano"),
+            false,
         );
         assert_eq!(chosen.len(), 1);
         assert_eq!(chosen[0].parsed.as_ref().unwrap().arc, "Wano Act 1");
@@ -722,6 +756,7 @@ mod tests {
             ],
             1080,
             None,
+            false,
         );
         assert_eq!(chosen.len(), 1);
     }
@@ -737,8 +772,76 @@ mod tests {
             ],
             1080,
             None,
+            false,
         );
         assert_eq!(chosen.len(), 1);
+    }
+
+    fn extended(arc: &str, ep: u32, res: &str, crc: &str) -> Release {
+        let mut r = release(arc, ep, res, crc);
+        if let Some(p) = r.parsed.as_mut() {
+            p.extended = true;
+        }
+        r
+    }
+
+    #[test]
+    fn pick_best_excludes_extended_without_opt_in() {
+        // Default behavior: Extended releases are filtered out entirely.
+        let chosen = pick_best_per_episode(
+            vec![
+                extended("Wano", 5, "1080p", "EXT00001"),
+                release("Wano", 5, "720p", "REG00001"),
+            ],
+            1080,
+            None,
+            false,
+        );
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(chosen[0].parsed.as_ref().unwrap().crc32.as_deref(), Some("REG00001"));
+    }
+
+    #[test]
+    fn pick_best_prefers_extended_over_higher_res_regular() {
+        // Preference > resolution: 720p Extended beats 1080p regular.
+        let chosen = pick_best_per_episode(
+            vec![
+                release("Wano", 5, "1080p", "REG00001"),
+                extended("Wano", 5, "720p", "EXT00001"),
+            ],
+            1080,
+            None,
+            true,
+        );
+        assert_eq!(chosen.len(), 1);
+        let p = chosen[0].parsed.as_ref().unwrap();
+        assert!(p.extended);
+        assert_eq!(p.crc32.as_deref(), Some("EXT00001"));
+    }
+
+    #[test]
+    fn pick_best_uses_regular_when_no_extended_with_opt_in() {
+        // Opt-in alone doesn't conjure Extended where none exists.
+        let chosen = pick_best_per_episode(
+            vec![release("Wano", 5, "1080p", "REG00001")],
+            1080,
+            None,
+            true,
+        );
+        assert_eq!(chosen.len(), 1);
+        assert!(!chosen[0].parsed.as_ref().unwrap().extended);
+    }
+
+    #[test]
+    fn pick_best_extended_still_subject_to_cap() {
+        // Extended above cap is still dropped.
+        let chosen = pick_best_per_episode(
+            vec![extended("Wano", 5, "1080p", "EXT00001")],
+            720,
+            None,
+            true,
+        );
+        assert!(chosen.is_empty());
     }
 
     #[test]

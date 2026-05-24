@@ -182,6 +182,16 @@ pub enum Command {
         #[arg(long)]
         requeue_existing: bool,
 
+        /// When both a regular and an Extended cut exist for the same
+        /// (arc, episode) on upstream, queue the Extended (preference
+        /// wins over the resolution cap). The "have" set treats regular
+        /// and Extended as fungible — if you already have either, the
+        /// slot is filled. Pair with `pacefinder cleanup
+        /// --remove-superseded` afterwards to move stranded regulars
+        /// out of the way. Env: `PACEFINDER_PREFER_EXTENDED`.
+        #[arg(long, env = "PACEFINDER_PREFER_EXTENDED")]
+        prefer_extended: bool,
+
         /// Only consider releases whose arc name contains this substring
         /// (case-insensitive). Useful for trying it out on one arc first.
         #[arg(long)]

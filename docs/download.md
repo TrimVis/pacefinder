@@ -88,6 +88,24 @@ After queueing each torrent we write an `episode.nfo` at
 Jellyfin doesn't overwrite it once the .mkv arrives). Series/season NFOs
 and existing-NFO overwrites are `generate`'s job.
 
+## Extended cuts (`--prefer-extended`)
+
+Some episodes ship as both a regular release and an Extended cut. By
+default, Extended releases are skipped — they show up as separate
+torrents with a different filename pattern (`<Arc> <N> Extended`).
+
+`--prefer-extended` (or `PACEFINDER_PREFER_EXTENDED=1`) queues the
+Extended variant instead of the regular for any `(arc, episode)` that
+has both upstream. Preference wins over the resolution cap: a 720p
+Extended beats a 1080p regular under this flag. If only one variant
+exists upstream for an episode, you get that one regardless.
+
+The "have" check stays CRC-based — if you've already got the regular
+on disk, queueing the Extended will *add* it (you'll end up with both
+files for that episode until you tidy up). Run `pacefinder cleanup
+--remove-superseded` afterwards to move the regulars out of the way
+(see [troubleshooting](troubleshooting.md) once that lands).
+
 ## Known limitations
 
 - **`/releases` schema brittleness.** A site rebuild could reshuffle the
