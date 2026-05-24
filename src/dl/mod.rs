@@ -1,16 +1,5 @@
-//! Download subsystem.
-//!
-//! `dl` is sibling to `nfo` and `source` because fetching media is its own
-//! concern — different upstream (BitTorrent), different output (queued
-//! torrents, not on-disk files), different failure modes.
-//!
-//! Public surface:
-//!
-//! - [`Release`] — one downloadable item: a parsed filename + the magnet URI.
-//! - [`parse_magnet`] — pull the display name + info-hash out of a magnet
-//!   URI without taking a dep on a full magnet-link crate.
-//! - [`qbittorrent::QbtClient`] — the only download backend today. A
-//!   trait abstraction lands when there's a second client to slot in.
+//! Download backend. Today only qBittorrent; trait abstraction lands when
+//! there's a second client.
 
 pub mod qbittorrent;
 
@@ -19,42 +8,30 @@ use crate::matcher::ParsedFile;
 /// One downloadable episode/file from an upstream releases listing.
 #[derive(Debug, Clone)]
 pub struct Release {
-    /// Raw magnet URI, ready to feed to a torrent client.
     pub magnet: String,
-    /// Filename pulled from the magnet's `dn=` parameter. Carries arc,
-    /// episode, resolution, CRC32 — the identification surface.
     pub filename: String,
-    /// Parser output for `filename`. `None` means we recognized it as a
-    /// magnet but the filename didn't match any One Pace pattern (legacy
-    /// release naming, "Paced One Piece" variants, etc.). We skip those.
+    /// `None` means it was a magnet but the filename didn't match any
+    /// One Pace pattern (legacy / "Paced One Piece" variants).
     pub parsed: Option<ParsedFile>,
 }
 
 impl Release {
-    /// Pixel height parsed from the resolution token, e.g. `1080p` → 1080,
-    /// `640x480 x265 AAC` → 480. Used by the download CLI to pick the
-    /// best release at or below the user's `--resolution` cap.
     pub fn height(&self) -> Option<u32> {
         let res = self.parsed.as_ref()?.resolution.as_deref()?;
         height_of_resolution(res)
     }
 }
 
-// ---------- magnet parsing ----------
-
-/// Just enough of a magnet URI to be useful: the BitTorrent info-hash
-/// and the display name (URL-decoded). Trackers are passed through
-/// untouched in the raw magnet string; we don't need them parsed.
+/// BitTorrent info-hash + URL-decoded display name. Trackers stay in the
+/// raw magnet string; we don't need them parsed.
 #[derive(Debug, Clone)]
-pub struct ParsedMagnet {
+pub(crate) struct ParsedMagnet {
     pub btih: String,
     pub display_name: Option<String>,
 }
 
-/// Parse a `magnet:?…` URI into its useful components. Returns `None` if
-/// the input isn't a magnet URI or lacks an info-hash. Doesn't validate
-/// tracker URLs (some BT clients silently drop bad ones).
-pub fn parse_magnet(uri: &str) -> Option<ParsedMagnet> {
+/// Returns `None` if the input isn't a magnet URI or lacks an info-hash.
+pub(crate) fn parse_magnet(uri: &str) -> Option<ParsedMagnet> {
     let body = uri.strip_prefix("magnet:?")?;
 
     let mut btih = None;
@@ -114,9 +91,8 @@ fn urldecode_plus(input: &str) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// "1080p" → 1080, "720p" → 720, "640x480 x265 AAC" → 480,
-/// "WEBRip 1080" → 1080. Pulls the highest 3-4 digit number that looks
-/// like a vertical resolution. Returns `None` if no plausible number.
+/// "1080p" → 1080, "640x480 x265 AAC" → 480, "WEBRip 1080" → 1080.
+/// Returns the highest 3-4 digit number in the plausible-height range.
 fn height_of_resolution(res: &str) -> Option<u32> {
     // Quick path: trailing "p" like "1080p".
     if let Some(num) = res.strip_suffix('p').and_then(|n| n.parse::<u32>().ok()) {

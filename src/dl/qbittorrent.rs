@@ -1,16 +1,5 @@
 //! qBittorrent Web API client — minimal slice for the `download` subcommand.
-//!
-//! We need three things:
-//!
-//! - **login** (cookie-based — POST username/password to `/api/v2/auth/login`,
-//!   capture the `SID=` from `Set-Cookie`),
-//! - **list current torrents** (so we don't re-queue what's already there),
-//! - **add a magnet** with an explicit save path and optional category.
-//!
-//! Cookie management is one-shot per process — we store the `SID` string
-//! and slap it on every subsequent request as a `Cookie:` header. No
-//! cookie-jar dep needed.
-//!
+
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::Path;
 use ureq::Agent;
@@ -22,9 +11,7 @@ pub struct QbtClient {
 }
 
 impl QbtClient {
-    /// Authenticate against `<base>/api/v2/auth/login` and capture the
-    /// session cookie. `base` is the qBittorrent Web UI URL with no path
-    /// (e.g. `http://localhost:8080`).
+    /// `base` is the Web UI URL with no path (e.g. `http://localhost:8080`).
     pub fn login(base: &str, user: &str, pass: &str) -> Result<Self> {
         let base = base.trim_end_matches('/').to_string();
         let agent: Agent = Agent::config_builder()
@@ -35,7 +22,7 @@ impl QbtClient {
         let url = format!("{base}/api/v2/auth/login");
         // qBittorrent expects form-encoded credentials and a Referer that
         // matches the base URL (its CSRF guard).
-        let body = format!("username={}&password={}", urlencode(user), urlencode(pass),);
+        let body = format!("username={}&password={}", urlencode(user), urlencode(pass));
         let mut resp = agent
             .post(&url)
             .header("Referer", &base)
@@ -58,8 +45,6 @@ impl QbtClient {
         Ok(Self { agent, base, sid })
     }
 
-    /// Basenames of every torrent currently in the client. Used to dedupe
-    /// — we skip re-queueing what's already there.
     pub fn list_torrent_names(&self) -> Result<Vec<String>> {
         let url = format!("{}/api/v2/torrents/info", self.base);
         let mut resp = self
@@ -85,10 +70,8 @@ impl QbtClient {
             .collect())
     }
 
-    /// qBittorrent's configured default download path, e.g. `/downloads`.
-    /// Used by the caller to detect when our computed save_path probably
-    /// won't work from the client's perspective (mismatched mount tables
-    /// between pacefinder's host and qBittorrent's container).
+    /// Used by the caller to spot mismatched mount tables between
+    /// pacefinder's host and qBittorrent's container.
     pub fn default_save_path(&self) -> Result<String> {
         let url = format!("{}/api/v2/app/defaultSavePath", self.base);
         let mut resp = self
@@ -135,13 +118,9 @@ impl QbtClient {
 fn extract_sid_cookie(resp: &ureq::http::Response<ureq::Body>) -> Option<String> {
     for value in resp.headers().get_all("set-cookie") {
         let s = value.to_str().ok()?;
-        // "SID=abc123; HttpOnly; path=/"
         for part in s.split(';') {
-            let part = part.trim();
-            if let Some(v) = part.strip_prefix("SID=") {
-                if !v.is_empty() {
-                    return Some(v.to_string());
-                }
+            if let Some(v) = part.trim().strip_prefix("SID=").filter(|v| !v.is_empty()) {
+                return Some(v.to_string());
             }
         }
     }
@@ -151,6 +130,7 @@ fn extract_sid_cookie(resp: &ureq::http::Response<ureq::Body>) -> Option<String>
 /// Minimal percent-encode for `application/x-www-form-urlencoded` values:
 /// space → `+`, anything not in the unreserved set → `%XX`.
 fn urlencode(input: &str) -> String {
+    use std::fmt::Write;
     let mut out = String::with_capacity(input.len());
     for &b in input.as_bytes() {
         match b {
@@ -158,7 +138,7 @@ fn urlencode(input: &str) -> String {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(b as char);
             }
-            other => out.push_str(&format!("%{other:02X}")),
+            other => write!(out, "%{other:02X}").expect("writing to String"),
         }
     }
     out

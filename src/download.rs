@@ -1,24 +1,8 @@
 //! `download` subcommand: queue missing One Pace releases for download.
-//!
-//! Flow:
-//!
-//! 1. Scrape onepace.net `/releases` for every available magnet URI.
-//! 2. Filter by resolution and (optionally) arc-name substring.
-//! 3. Group per (arc, episode); pick the highest-resolution release that
-//!    still fits under the user's `--resolution` cap.
-//! 4. Build "have" set from the library (CRC32 of every recognized .mkv).
-//! 5. Build "queued" set from qBittorrent's current torrent names.
-//! 6. Queue any release whose CRC isn't in either set, with `save_path`
-//!    pointing at the arc folder under `<series-root>`.
-//! 7. (Optional) `--prepopulate-nfo`: write episode.nfo at the future
-//!    target path so Jellyfin's first scan after download has metadata.
-//!
-//! Queue-and-go: no waiting, no progress reporting. Compose with
-//! `pacefinder generate` after downloads finish (or use `--prepopulate-nfo`
-//! to get most of the way there before the .mkv lands).
+//! See `docs/download.md` for the diff-and-queue flow.
 
 use anyhow::{Context, Result, anyhow, bail};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -149,7 +133,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     // 5. qBittorrent state (skip when dry-run; we don't want to require
     //    credentials just to preview).
     let (qbt, queued) = if opts.dry_run {
-        (None, std::collections::HashSet::new())
+        (None, HashSet::new())
     } else {
         let client = QbtClient::login(&opts.qbt_url, &opts.qbt_user, &opts.qbt_pass)
             .context("logging in to qBittorrent")?;
@@ -160,7 +144,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         let names = client
             .list_torrent_names()
             .context("listing current qBittorrent torrents")?;
-        let queued: std::collections::HashSet<String> = names
+        let queued: HashSet<String> = names
             .iter()
             .filter_map(|n| ParsedFile::from_filename(n).and_then(|p| p.crc32))
             .collect();
@@ -215,22 +199,13 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         };
 
         if opts.dry_run {
-            if path_map.is_some() {
-                info!(
-                    magnet = %short_magnet(&release.magnet),
-                    save_path = %save_path.display(),
-                    host_path = %save_path_host.display(),
-                    file = %release.filename,
-                    "[dry-run] would queue",
-                );
-            } else {
-                info!(
-                    magnet = %short_magnet(&release.magnet),
-                    save_path = %save_path.display(),
-                    file = %release.filename,
-                    "[dry-run] would queue",
-                );
-            }
+            info!(
+                magnet = %short_magnet(&release.magnet),
+                save_path = %save_path.display(),
+                host_path = %save_path_host.display(),
+                file = %release.filename,
+                "[dry-run] would queue",
+            );
         } else if let Some(qbt) = qbt.as_ref() {
             if let Err(e) =
                 qbt.add_magnet(&release.magnet, &save_path, opts.qbt_category.as_deref())
@@ -331,8 +306,8 @@ fn pick_best_per_episode(
     out
 }
 
-fn library_crcs(root: &Path) -> std::collections::HashSet<String> {
-    let mut out = std::collections::HashSet::new();
+fn library_crcs(root: &Path) -> HashSet<String> {
+    let mut out = HashSet::new();
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = match entry {
             Ok(e) => e,
