@@ -22,9 +22,12 @@ use tracing::debug;
 
 use super::cache::CachedHttp;
 use super::{DataSource, ImageKind};
+use crate::dl::{Release, parse_magnet};
+use crate::matcher::ParsedFile;
 use crate::model::{Episode, Season, Series};
 
 const WATCH_URL: &str = "https://onepace.net/watch";
+const RELEASES_URL: &str = "https://onepace.net/releases";
 
 pub struct OnepaceNet {
     http: Rc<CachedHttp>,
@@ -64,6 +67,19 @@ impl OnepaceNet {
         let tl = Rc::new(build_timeline(segments));
         let _ = self.timeline.set(Rc::clone(&tl));
         Ok(Rc::clone(self.timeline.get().expect("just set")))
+    }
+
+    /// Fetch the `/releases` RSC payload and pull out every release entry.
+    /// Each release becomes a [`Release`] with the raw magnet URI plus
+    /// the parsed filename from the magnet's `dn=` parameter. Entries
+    /// whose filename doesn't match the One Pace naming scheme are
+    /// included with `parsed = None`; the caller decides whether to skip.
+    pub fn fetch_releases(&self) -> Result<Vec<Release>> {
+        let body = self
+            .http
+            .get_string_with_header(RELEASES_URL, "RSC", "1")
+            .context("fetching onepace.net /releases RSC payload")?;
+        Ok(extract_releases(&body))
     }
 }
 
@@ -118,6 +134,47 @@ fn find_segments(root: &Value) -> Option<&Value> {
     }
     None
 }
+
+// ---------- releases ----------
+
+/// Scan the RSC payload for every `T<hex>,magnet:?...` text blob and
+/// turn each one into a [`Release`]. The releases chunk is one giant RSC
+/// "text" chunk made of many length-prefixed blobs concatenated; some
+/// blobs are magnet URIs, some are pixeldrain URLs, some are unrelated
+/// strings. We only keep magnets and don't worry about which JSX node
+/// each one was attached to — the filename inside `dn=` is enough.
+fn extract_releases(rsc: &str) -> Vec<Release> {
+    let mut releases = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for cap in MAGNET_IN_RSC_RE.find_iter(rsc) {
+        let uri = cap.as_str();
+        // Strip any trailing artifact from the regex match (we anchor up
+        // to the next `T<hex>,` chunk boundary or end of line; trim
+        // anything past the last valid tracker).
+        let uri = uri.trim_end_matches(|c: char| c.is_ascii_digit() || c == ':');
+        let Some(parsed_magnet) = parse_magnet(uri) else {
+            continue;
+        };
+        if !seen.insert(parsed_magnet.btih.clone()) {
+            continue; // same torrent listed twice
+        }
+        let filename = parsed_magnet.display_name.clone().unwrap_or_default();
+        let parsed = ParsedFile::from_filename(&filename);
+        releases.push(Release {
+            magnet: uri.to_string(),
+            filename,
+            parsed,
+        });
+    }
+    releases
+}
+
+/// Matches `magnet:?...` URIs greedily up to (but not including) the next
+/// chunk boundary marker `<digits>:T<hex>,` that the RSC stream uses
+/// to glue together text blobs. Trailing junk gets trimmed in
+/// [`extract_releases`].
+static MAGNET_IN_RSC_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"magnet:\?[^\s\n]+?(?:announce|$)").unwrap());
 
 fn build_timeline(segments: Vec<Segment>) -> Timeline {
     let mut number = 0u32;
