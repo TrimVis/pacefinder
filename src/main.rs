@@ -95,9 +95,10 @@ fn main() -> Result<()> {
             refresh,
             dry_run,
             prepopulate_nfo,
-            refresh_existing,
+            requeue_existing,
             only_arc,
             save_path_map,
+            fail_on_empty,
         } => download::run(
             &path,
             download::Options {
@@ -110,9 +111,10 @@ fn main() -> Result<()> {
                 refresh,
                 dry_run,
                 prepopulate_nfo,
-                refresh_existing,
+                requeue_existing,
                 only_arc,
                 save_path_map,
+                fail_on_empty,
             },
         ),
     }

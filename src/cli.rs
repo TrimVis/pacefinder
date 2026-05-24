@@ -177,12 +177,18 @@ pub enum Command {
         /// (treats them as if missing). Useful when upstream re-encodes
         /// and you want the new version.
         #[arg(long)]
-        refresh_existing: bool,
+        requeue_existing: bool,
 
         /// Only consider releases whose arc name contains this substring
         /// (case-insensitive). Useful for trying it out on one arc first.
         #[arg(long)]
         only_arc: Option<String>,
+
+        /// Exit non-zero if `/releases` parses to zero magnets. Useful in
+        /// CI to detect upstream parse regressions that would otherwise
+        /// look like "nothing new to download".
+        #[arg(long)]
+        fail_on_empty: bool,
 
         /// Translate save paths from the host filesystem to qBittorrent's
         /// view. Format: `HOST=CONTAINER` (e.g. `/mnt/media=/downloads`).

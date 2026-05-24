@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 use crate::dl::Release;
 use crate::dl::qbittorrent::QbtClient;
 use crate::fs_util::canonicalize_root;
-use crate::matcher::{ParsedFile, normalize_arc};
+use crate::matcher::{ParsedFile, arc_from_folder_name, normalize_arc};
 use crate::nfo::writer;
 use crate::scan::is_video;
 use crate::source::DataSource;
@@ -30,11 +30,12 @@ pub struct Options {
     pub refresh: bool,
     pub dry_run: bool,
     pub prepopulate_nfo: bool,
-    pub refresh_existing: bool,
+    pub requeue_existing: bool,
     pub only_arc: Option<String>,
     /// `HOST=CONTAINER` — translate save paths from pacefinder's view to
     /// qBittorrent's view when they differ (Docker mount tables etc.).
     pub save_path_map: Option<String>,
+    pub fail_on_empty: bool,
 }
 
 /// Parsed `--save-path-map`. Trailing slashes on each side are tolerated.
@@ -114,6 +115,9 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         .fetch_releases()
         .context("fetching releases from onepace.net")?;
     info!(count = releases.len(), "release listings discovered");
+    if releases.is_empty() && opts.fail_on_empty {
+        bail!("/releases returned zero magnets — likely upstream parse regression");
+    }
 
     // 2 + 3. Filter by resolution + only_arc; collapse to best-per-episode.
     let chosen = pick_best_per_episode(releases, max_height, opts.only_arc.as_deref());
@@ -173,7 +177,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
             stats.no_crc += 1;
             continue;
         };
-        if !opts.refresh_existing && have.contains(crc) {
+        if !opts.requeue_existing && have.contains(crc) {
             stats.already_have += 1;
             continue;
         }
@@ -333,36 +337,34 @@ fn library_crcs(root: &Path) -> HashSet<String> {
 }
 
 /// Locate an existing arc folder under `root` that matches `arc_name`, or
-/// propose a folder name to create. Uses normalize_arc for matching;
-/// returns the *basename* of the destination folder relative to `root`.
+/// propose a folder name to create. Returns the basename relative to `root`.
 fn find_or_propose_arc_folder(root: &Path, arc_name: &str) -> String {
     let target_norm = normalize_arc(arc_name);
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for entry in entries.flatten() {
-            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
-                && let Some(name) = entry.file_name().to_str()
-                && let Some(parsed) = crate::matcher::ParsedFile::from_filename(&format!(
-                    "[One Pace][1] {name} 01 [1080p][00000000].mkv"
-                ))
-            {
-                // Cheap reuse of ParsedFile to extract the arc from the
-                // folder name pattern; if it matches we use that folder.
-                if normalize_arc(&parsed.arc) == target_norm {
-                    return name.to_string();
-                }
-            }
-        }
-        // Folder-name match fallback: just substring-compare normalized.
-        for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
-            if let Some(name) = entry.file_name().to_str()
-                && normalize_arc(name).contains(&target_norm)
-            {
-                return name.to_string();
-            }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return format!("[One Pace] {arc_name}");
+    };
+    let dirs: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+
+    // Exact: arc parsed out of a `[One Pace][...] <Arc> [<res>]` folder.
+    for name in &dirs {
+        if arc_from_folder_name(name)
+            .map(|a| normalize_arc(&a) == target_norm)
+            .unwrap_or(false)
+        {
+            return name.clone();
         }
     }
-    // Nothing matched; propose a fresh arc folder. Matches what users
-    // typically see, e.g. "[One Pace][?] <Arc> [1080p]".
+    // Fallback: substring match on normalized folder name (handles
+    // unconventional folder shapes).
+    for name in &dirs {
+        if normalize_arc(name).contains(&target_norm) {
+            return name.clone();
+        }
+    }
     format!("[One Pace] {arc_name}")
 }
 

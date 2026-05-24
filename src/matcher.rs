@@ -23,6 +23,14 @@ pub fn is_arc_folder_name(name: &str) -> bool {
     FOLDER_RE.is_match(name)
 }
 
+/// Extract the arc name from a folder named like `[One Pace][<range>] <Arc> [<res>]`.
+/// Returns `None` if `name` isn't a recognized arc-folder shape.
+pub fn arc_from_folder_name(name: &str) -> Option<String> {
+    FOLDER_ARC_RE
+        .captures(name)
+        .map(|caps| caps["arc"].trim().to_string())
+}
+
 // Chapter ranges in the wild appear in several shapes:
 //   [1]        single chapter
 //   [1-7]      contiguous range
@@ -38,6 +46,18 @@ static FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
         ^\[One\ Pace\]
         \[{RANGE_BODY}\]
         \s+.+?
+        \s+\[[^\]]+\]$
+        "
+    ))
+    .expect("static regex")
+});
+
+static FOLDER_ARC_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"(?x)
+        ^\[One\ Pace\]
+        \[{RANGE_BODY}\]
+        \s+(?P<arc>.+?)
         \s+\[[^\]]+\]$
         "
     ))
@@ -211,6 +231,23 @@ mod tests {
     #[test]
     fn arc_folder_regex_accepts_open_ended_range() {
         assert!(is_arc_folder_name("[One Pace][1058-] Egghead [1080p]"));
+    }
+
+    #[test]
+    fn arc_from_folder_name_extracts_arc() {
+        assert_eq!(
+            arc_from_folder_name("[One Pace][1-7] Romance Dawn [1080p]"),
+            Some("Romance Dawn".into())
+        );
+        assert_eq!(
+            arc_from_folder_name("[One Pace][1058-] Egghead [720p]"),
+            Some("Egghead".into())
+        );
+        assert_eq!(
+            arc_from_folder_name("[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv"),
+            None,
+        );
+        assert_eq!(arc_from_folder_name("Random folder"), None);
     }
 
     #[test]

@@ -42,7 +42,7 @@ For each release on `/releases`:
 2. Skip if resolution > `--resolution` cap (default `1080p`).
 3. Group per `(arc, episode)`, keep the highest-resolution variant.
 4. Skip if the release's CRC matches a file already in your library
-   (unless `--refresh-existing` is set).
+   (unless `--requeue-existing` is set).
 5. Skip if the release's CRC matches a torrent already in qBittorrent's
    queue (parsed from torrent name).
 6. Queue everything else.
@@ -98,7 +98,7 @@ and existing-NFO overwrites are `generate`'s job.
 - **Resolution detection is filename-based.** We don't probe the file —
   a `[1080p]`-tagged release that's actually lower-res still gets picked.
 - **CRC drift on re-uploads.** A re-encoded episode has a new CRC; we
-  treat it as missing. `--refresh-existing` is the explicit knob if you
+  treat it as missing. `--requeue-existing` is the explicit knob if you
   don't want the upgrade.
 
 ## See also
