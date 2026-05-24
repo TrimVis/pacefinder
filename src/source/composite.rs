@@ -139,6 +139,7 @@ mod tests {
             showtitle: title.into(),
             original_title: None,
             plot: "x".into(),
+            display_order: None,
             named_seasons: vec![NamedSeason {
                 number: 1,
                 name: "1. x".into(),

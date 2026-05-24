@@ -273,6 +273,7 @@ mod tests {
             showtitle: "One Pace".into(),
             original_title: Some("One Piece".into()),
             plot: "Fan recut.".into(),
+            display_order: None,
             named_seasons: vec![NamedSeason {
                 number: 1,
                 name: "1. Romance Dawn".into(),

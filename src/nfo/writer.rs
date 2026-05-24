@@ -167,6 +167,7 @@ mod tests {
             showtitle: "One Pace".into(),
             original_title: Some("One Piece".into()),
             plot: "Fan recut.".into(),
+            display_order: Some("absolute".into()),
             named_seasons: vec![
                 NamedSeason {
                     number: 1,

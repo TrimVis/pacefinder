@@ -19,6 +19,11 @@ pub struct KodiTvShow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub originaltitle: Option<String>,
     pub plot: String,
+    /// Kodi/Jellyfin honor `<displayorder>` to set the series-level
+    /// episode ordering (e.g. "absolute" for a flat 1..N list, "aired"
+    /// for per-season grouping, "dvd" for DVD order).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub displayorder: Option<String>,
     #[serde(default, rename = "namedseason", skip_serializing_if = "Vec::is_empty")]
     pub namedseasons: Vec<KodiNamedSeason>,
 }
@@ -82,6 +87,7 @@ impl From<KodiTvShow> for Series {
             showtitle: k.showtitle,
             original_title: k.originaltitle,
             plot: k.plot,
+            display_order: k.displayorder,
             named_seasons: k
                 .namedseasons
                 .into_iter()
@@ -111,6 +117,7 @@ impl From<Series> for KodiTvShow {
             showtitle: s.showtitle,
             originaltitle: s.original_title,
             plot: s.plot,
+            displayorder: s.display_order,
             namedseasons: s
                 .named_seasons
                 .into_iter()

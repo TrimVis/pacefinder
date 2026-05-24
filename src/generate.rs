@@ -38,6 +38,9 @@ pub struct Options {
     /// Don't prompt — skip conflicts instead. Used by cron/CI. Mutually
     /// exclusive with `force`.
     pub non_interactive: bool,
+    /// Value to write into the series' `<displayorder>` element (e.g.
+    /// "absolute"). Overrides whatever the upstream Series carried.
+    pub display_order: String,
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
@@ -57,7 +60,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
 
     let mut pending: Vec<PendingWrite> = Vec::new();
     let mut episode_stats = EpisodeStats::default();
-    plan_series_assets(source.as_ref(), &root, &mut pending);
+    plan_series_assets(source.as_ref(), &root, &opts.display_order, &mut pending);
     let arc_folders = plan_episode_assets(
         source.as_ref(),
         &root,
@@ -218,9 +221,15 @@ impl Asset {
     }
 }
 
-fn plan_series_assets(source: &dyn DataSource, root: &Path, pending: &mut Vec<PendingWrite>) {
+fn plan_series_assets(
+    source: &dyn DataSource,
+    root: &Path,
+    display_order: &str,
+    pending: &mut Vec<PendingWrite>,
+) {
     match source.series() {
-        Ok(Some(series)) => {
+        Ok(Some(mut series)) => {
+            series.display_order = Some(display_order.to_string());
             pending.push(PendingWrite {
                 path: root.join("tvshow.nfo"),
                 label: "tvshow.nfo".into(),

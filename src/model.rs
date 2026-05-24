@@ -13,6 +13,10 @@ pub struct Series {
     pub original_title: Option<String>,
     pub plot: String,
     pub named_seasons: Vec<NamedSeason>,
+    /// Kodi/Jellyfin display-order hint written into tvshow.nfo (e.g.
+    /// "absolute", "aired", "dvd"). `None` lets the media server use its
+    /// default ("aired" for Jellyfin).
+    pub display_order: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

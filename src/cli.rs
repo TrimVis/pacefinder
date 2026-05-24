@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -63,6 +63,14 @@ pub enum Command {
         /// Mutually exclusive with --force.
         #[arg(long, conflicts_with = "force")]
         non_interactive: bool,
+
+        /// `<displayorder>` written into tvshow.nfo. Jellyfin/Kodi use it
+        /// to lay out episodes in the series view. Defaults to `absolute`
+        /// (flat 1..N list across arcs — the right view for a re-edit
+        /// like One Pace); pass `aired` for the season-card grouping or
+        /// `dvd` for DVD order.
+        #[arg(long, value_enum, default_value_t = DisplayOrder::Absolute)]
+        display_order: DisplayOrder,
     },
     /// Walk a media directory and report what was recognized
     Scan {
@@ -122,4 +130,22 @@ pub enum CacheAction {
 
 fn parse_humantime(s: &str) -> Result<Duration, String> {
     humantime::parse_duration(s).map_err(|e| format!("invalid duration `{s}`: {e}"))
+}
+
+/// Display-order values Kodi/Jellyfin recognize for series.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DisplayOrder {
+    Absolute,
+    Aired,
+    Dvd,
+}
+
+impl DisplayOrder {
+    pub fn as_kodi(self) -> &'static str {
+        match self {
+            Self::Absolute => "absolute",
+            Self::Aired => "aired",
+            Self::Dvd => "dvd",
+        }
+    }
 }
