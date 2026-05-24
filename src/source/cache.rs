@@ -10,7 +10,7 @@ use directories::ProjectDirs;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tracing::{debug, trace};
 use ureq::Agent;
 
@@ -115,7 +115,12 @@ impl CachedHttp {
         let Ok(modified) = meta.modified() else {
             return false;
         };
-        modified.elapsed().is_ok_and(|e| e < self.ttl)
+        // Clock skew (NTP correction, container time jumps) can leave
+        // mtimes in the future; treat those as age 0 rather than stale.
+        let age = SystemTime::now()
+            .duration_since(modified)
+            .unwrap_or(Duration::ZERO);
+        age < self.ttl
     }
 
     fn path_for_keyed(&self, url: &str, headers: &[(&str, &str)]) -> PathBuf {

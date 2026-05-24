@@ -117,7 +117,9 @@ impl QbtClient {
 
 fn extract_sid_cookie(resp: &ureq::http::Response<ureq::Body>) -> Option<String> {
     for value in resp.headers().get_all("set-cookie") {
-        let s = value.to_str().ok()?;
+        let Ok(s) = value.to_str() else {
+            continue; // skip non-ASCII headers rather than aborting the scan
+        };
         for part in s.split(';') {
             if let Some(v) = part.trim().strip_prefix("SID=").filter(|v| !v.is_empty()) {
                 return Some(v.to_string());

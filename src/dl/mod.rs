@@ -38,7 +38,9 @@ pub(crate) fn parse_magnet(uri: &str) -> Option<ParsedMagnet> {
     let mut display_name = None;
 
     for pair in body.split('&') {
-        let (k, v) = pair.split_once('=')?;
+        let Some((k, v)) = pair.split_once('=') else {
+            continue; // key-only flags (e.g. `&dht-only`) are valid; just skip
+        };
         match k {
             "xt" => {
                 if let Some(hash) = v.strip_prefix("urn:btih:") {

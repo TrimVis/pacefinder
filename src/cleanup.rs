@@ -158,8 +158,26 @@ fn collect_arc_dirs(root: &Path) -> Result<Vec<PathBuf>> {
         }
         out.push(path);
     }
-    out.sort();
+    // Sort by the chapter range's leading number so triple-digit ranges
+    // (`[1058-]`) don't lex-sort between `[1-7]` and `[2-3]`.
+    out.sort_by(|a, b| {
+        let ka = a.file_name().and_then(|n| n.to_str()).map(arc_chapter_key);
+        let kb = b.file_name().and_then(|n| n.to_str()).map(arc_chapter_key);
+        ka.cmp(&kb).then_with(|| a.cmp(b))
+    });
     Ok(out)
+}
+
+/// First numeric run inside the chapter-range brackets:
+/// `[One Pace][1058-] Egghead [...]` → 1058. Returns 0 if no leading digits.
+fn arc_chapter_key(name: &str) -> u32 {
+    let after_first_bracket = name.split_once(']').map(|x| x.1).unwrap_or("");
+    let digits: String = after_first_bracket
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().unwrap_or(0)
 }
 
 pub(crate) fn classify(dir: &Path) -> Plan {

@@ -257,8 +257,9 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
 }
 
 fn parse_resolution_cap(s: &str) -> Result<u32> {
-    // Accept "1080p" / "1080" / "720p" etc.
-    let trimmed = s.trim().trim_end_matches('p');
+    // Accept "1080p" / "1080P" / "1080" / "720p" etc.
+    let lower = s.trim().to_ascii_lowercase();
+    let trimmed = lower.trim_end_matches('p');
     trimmed
         .parse::<u32>()
         .with_context(|| format!("invalid --resolution {s:?}: expected `1080p`, `720p`, …"))
