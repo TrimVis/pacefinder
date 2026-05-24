@@ -32,18 +32,21 @@ const MARKER_CLOSE: &str = "-->\n";
 /// is enough that collisions between distinct bodies are not a concern.
 const HASH_HEX_LEN: usize = 16;
 
-pub fn write_series(path: &Path, series: &Series) -> Result<()> {
-    let kodi: KodiTvShow = series.clone().into();
+pub fn write_series(path: &Path, series: &Series, lock: bool) -> Result<()> {
+    let mut kodi: KodiTvShow = series.clone().into();
+    kodi.lockdata = lock.then_some(true);
     write_xml(path, &kodi, "tvshow")
 }
 
-pub fn write_season(path: &Path, season: &Season) -> Result<()> {
-    let kodi: KodiSeason = season.clone().into();
+pub fn write_season(path: &Path, season: &Season, lock: bool) -> Result<()> {
+    let mut kodi: KodiSeason = season.clone().into();
+    kodi.lockdata = lock.then_some(true);
     write_xml(path, &kodi, "season")
 }
 
-pub fn write_episode(path: &Path, episode: &Episode) -> Result<()> {
-    let kodi: KodiEpisode = episode.clone().into();
+pub fn write_episode(path: &Path, episode: &Episode, lock: bool) -> Result<()> {
+    let mut kodi: KodiEpisode = episode.clone().into();
+    kodi.lockdata = lock.then_some(true);
     write_xml(path, &kodi, "episodedetails")
 }
 
@@ -186,7 +189,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("tvshow.nfo");
         let s = sample_series();
-        write_series(&path, &s).unwrap();
+        write_series(&path, &s, false).unwrap();
 
         let xml = fs::read_to_string(&path).unwrap();
         let parsed: Series = kodi::parse_tvshow(&xml).unwrap().into();
@@ -204,7 +207,7 @@ mod tests {
             title: "1. Romance Dawn".into(),
             plot: Some("Luffy sets out.".into()),
         };
-        write_season(&path, &s).unwrap();
+        write_season(&path, &s, false).unwrap();
         let xml = fs::read_to_string(&path).unwrap();
         let parsed: Season = kodi::parse_season(&xml).unwrap().into();
         assert_eq!(parsed.number, 1);
@@ -224,7 +227,7 @@ mod tests {
             premiered: Some("2025-05-03".into()),
             aired: Some("2025-05-03".into()),
         };
-        write_episode(&path, &e).unwrap();
+        write_episode(&path, &e, false).unwrap();
         let xml = fs::read_to_string(&path).unwrap();
         let parsed: Episode = kodi::parse_episode(&xml).unwrap().into();
         assert_eq!(parsed.title, e.title);
@@ -234,10 +237,34 @@ mod tests {
     }
 
     #[test]
+    fn series_writes_lockdata_when_locked() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("tvshow.nfo");
+        write_series(&path, &sample_series(), true).unwrap();
+        let xml = fs::read_to_string(&path).unwrap();
+        assert!(
+            xml.contains("<lockdata>true</lockdata>"),
+            "expected lockdata in:\n{xml}"
+        );
+    }
+
+    #[test]
+    fn series_omits_lockdata_when_unlocked() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("tvshow.nfo");
+        write_series(&path, &sample_series(), false).unwrap();
+        let xml = fs::read_to_string(&path).unwrap();
+        assert!(
+            !xml.contains("<lockdata>"),
+            "unexpected lockdata in:\n{xml}"
+        );
+    }
+
+    #[test]
     fn marker_intact_after_clean_write() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("tvshow.nfo");
-        write_series(&path, &sample_series()).unwrap();
+        write_series(&path, &sample_series(), false).unwrap();
         assert_eq!(marker_status(&path), MarkerStatus::IntactOurs);
     }
 
@@ -245,7 +272,7 @@ mod tests {
     fn marker_edited_when_body_changed() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("tvshow.nfo");
-        write_series(&path, &sample_series()).unwrap();
+        write_series(&path, &sample_series(), false).unwrap();
         // Hand-edit: append a stray comment to the body.
         let mut current = fs::read_to_string(&path).unwrap();
         current.push_str("<!-- user edit -->\n");
@@ -291,7 +318,7 @@ mod tests {
     fn atomic_write_leaves_no_tmp_on_success() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("tvshow.nfo");
-        write_series(&path, &sample_series()).unwrap();
+        write_series(&path, &sample_series(), false).unwrap();
         let entries: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())

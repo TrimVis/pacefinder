@@ -14,6 +14,11 @@ use crate::model::{Episode, NamedSeason, Season, Series};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename = "tvshow")]
 pub struct KodiTvShow {
+    /// Jellyfin honors `<lockdata>true</lockdata>` by skipping provider
+    /// refresh for this item, which stops the metadata explorer from
+    /// silently rewriting our NFO on trivial interactions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lockdata: Option<bool>,
     pub title: String,
     pub showtitle: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,6 +46,8 @@ pub struct KodiNamedSeason {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename = "season")]
 pub struct KodiSeason {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lockdata: Option<bool>,
     pub title: String,
     pub seasonnumber: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,6 +59,8 @@ pub struct KodiSeason {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename = "episodedetails")]
 pub struct KodiEpisode {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lockdata: Option<bool>,
     pub title: String,
     pub showtitle: String,
     pub season: u32,
@@ -113,6 +122,7 @@ impl From<KodiSeason> for Season {
 impl From<Series> for KodiTvShow {
     fn from(s: Series) -> Self {
         KodiTvShow {
+            lockdata: None,
             title: s.title,
             showtitle: s.showtitle,
             originaltitle: s.original_title,
@@ -133,6 +143,7 @@ impl From<Series> for KodiTvShow {
 impl From<Season> for KodiSeason {
     fn from(s: Season) -> Self {
         KodiSeason {
+            lockdata: None,
             title: s.title,
             seasonnumber: s.number,
             plot: s.plot,
@@ -143,6 +154,7 @@ impl From<Season> for KodiSeason {
 impl From<Episode> for KodiEpisode {
     fn from(e: Episode) -> Self {
         KodiEpisode {
+            lockdata: None,
             title: e.title,
             showtitle: e.showtitle,
             season: e.season,

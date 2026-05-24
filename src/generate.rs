@@ -16,6 +16,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
+use crate::cli::LockMode;
 use crate::matcher::{ParsedFile, is_arc_folder_name, normalize_arc};
 use crate::nfo::writer::{self, MarkerStatus};
 use crate::scan::is_video;
@@ -41,6 +42,9 @@ pub struct Options {
     /// Value to write into the series' `<displayorder>` element (e.g.
     /// "absolute"). Overrides whatever the upstream Series carried.
     pub display_order: String,
+    /// Which NFO kinds get `<lockdata>true</lockdata>` to stop Jellyfin's
+    /// metadata explorer from rewriting them.
+    pub lock: LockMode,
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
@@ -58,17 +62,27 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         return Ok(());
     }
 
+    let lock_series = matches!(opts.lock, LockMode::Show | LockMode::All);
+    let lock_children = matches!(opts.lock, LockMode::All);
+
     let mut pending: Vec<PendingWrite> = Vec::new();
     let mut episode_stats = EpisodeStats::default();
-    plan_series_assets(source.as_ref(), &root, &opts.display_order, &mut pending);
+    plan_series_assets(
+        source.as_ref(),
+        &root,
+        &opts.display_order,
+        lock_series,
+        &mut pending,
+    );
     let arc_folders = plan_episode_assets(
         source.as_ref(),
         &root,
         &scan.matched,
+        lock_children,
         &mut pending,
         &mut episode_stats,
     );
-    plan_season_assets(source.as_ref(), &arc_folders, &mut pending);
+    plan_season_assets(source.as_ref(), &arc_folders, lock_children, &mut pending);
 
     let summary = apply_plan(pending, &opts)?;
 
@@ -198,18 +212,27 @@ struct PendingWrite {
 }
 
 enum Asset {
-    SeriesNfo(crate::model::Series),
-    SeasonNfo(crate::model::Season),
-    EpisodeNfo(crate::model::Episode),
+    SeriesNfo {
+        series: crate::model::Series,
+        lock: bool,
+    },
+    SeasonNfo {
+        season: crate::model::Season,
+        lock: bool,
+    },
+    EpisodeNfo {
+        episode: crate::model::Episode,
+        lock: bool,
+    },
     Poster(Vec<u8>),
 }
 
 impl Asset {
     fn execute(self, path: &Path) -> Result<()> {
         match self {
-            Self::SeriesNfo(s) => writer::write_series(path, &s),
-            Self::SeasonNfo(s) => writer::write_season(path, &s),
-            Self::EpisodeNfo(e) => writer::write_episode(path, &e),
+            Self::SeriesNfo { series, lock } => writer::write_series(path, &series, lock),
+            Self::SeasonNfo { season, lock } => writer::write_season(path, &season, lock),
+            Self::EpisodeNfo { episode, lock } => writer::write_episode(path, &episode, lock),
             Self::Poster(bytes) => {
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent)
@@ -225,6 +248,7 @@ fn plan_series_assets(
     source: &dyn DataSource,
     root: &Path,
     display_order: &str,
+    lock: bool,
     pending: &mut Vec<PendingWrite>,
 ) {
     match source.series() {
@@ -233,7 +257,7 @@ fn plan_series_assets(
             pending.push(PendingWrite {
                 path: root.join("tvshow.nfo"),
                 label: "tvshow.nfo".into(),
-                kind: Asset::SeriesNfo(series),
+                kind: Asset::SeriesNfo { series, lock },
             });
             match source.image(ImageKind::SeriesPoster) {
                 Ok(Some(bytes)) => pending.push(PendingWrite {
@@ -263,6 +287,7 @@ fn plan_episode_assets(
     source: &dyn DataSource,
     root: &Path,
     matched: &[(PathBuf, ParsedFile)],
+    lock: bool,
     pending: &mut Vec<PendingWrite>,
     stats: &mut EpisodeStats,
 ) -> HashMap<u32, PathBuf> {
@@ -323,7 +348,7 @@ fn plan_episode_assets(
         pending.push(PendingWrite {
             path: nfo_path,
             label,
-            kind: Asset::EpisodeNfo(episode),
+            kind: Asset::EpisodeNfo { episode, lock },
         });
         stats.matched_to_source += 1;
     }
@@ -334,6 +359,7 @@ fn plan_episode_assets(
 fn plan_season_assets(
     source: &dyn DataSource,
     arc_folders: &HashMap<u32, PathBuf>,
+    lock: bool,
     pending: &mut Vec<PendingWrite>,
 ) {
     for (season_num, folder) in arc_folders {
@@ -341,7 +367,7 @@ fn plan_season_assets(
             Ok(Some(season)) => pending.push(PendingWrite {
                 path: folder.join("season.nfo"),
                 label: format!("season.nfo (S{season_num:02})"),
-                kind: Asset::SeasonNfo(season),
+                kind: Asset::SeasonNfo { season, lock },
             }),
             Ok(None) => warn!(season = season_num, "no season metadata available"),
             Err(e) => {

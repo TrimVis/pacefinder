@@ -311,7 +311,7 @@ mod tests {
     fn classify_matched_arc_to_leave() {
         let dir = tempdir().unwrap();
         let arc = make_arc(dir.path(), ARC_NAME);
-        writer::write_series(&arc.join("tvshow.nfo"), &sample_series()).unwrap();
+        writer::write_series(&arc.join("tvshow.nfo"), &sample_series(), false).unwrap();
         assert_eq!(classify(&arc), Plan::Leave(arc, "matched"));
     }
 
@@ -320,7 +320,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let arc = make_arc(dir.path(), ARC_NAME);
         let nfo = arc.join("tvshow.nfo");
-        writer::write_series(&nfo, &sample_series()).unwrap();
+        writer::write_series(&nfo, &sample_series(), false).unwrap();
         // Tamper so marker_status returns EditedOurs.
         let mut content = fs::read_to_string(&nfo).unwrap();
         content.push_str("<!-- user edit -->\n");

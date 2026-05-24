@@ -68,6 +68,7 @@ fn main() -> Result<()> {
             force,
             non_interactive,
             display_order,
+            lock,
         } => generate::run(
             &path,
             generate::Options {
@@ -77,6 +78,7 @@ fn main() -> Result<()> {
                 force,
                 non_interactive,
                 display_order: display_order.as_kodi().to_string(),
+                lock,
             },
         ),
     }

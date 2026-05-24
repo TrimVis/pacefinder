@@ -71,6 +71,13 @@ pub enum Command {
         /// `dvd` for DVD order.
         #[arg(long, value_enum, default_value_t = DisplayOrder::Absolute)]
         display_order: DisplayOrder,
+
+        /// Emit `<lockdata>true</lockdata>` so Jellyfin's metadata explorer
+        /// stops overwriting our NFOs. `show` (default) locks only
+        /// tvshow.nfo, `all` also locks season.nfo and episode.nfo, `none`
+        /// disables locking entirely.
+        #[arg(long, value_enum, default_value_t = LockMode::Show)]
+        lock: LockMode,
     },
     /// Walk a media directory and report what was recognized
     Scan {
@@ -148,4 +155,15 @@ impl DisplayOrder {
             Self::Dvd => "dvd",
         }
     }
+}
+
+/// Which NFO kinds carry `<lockdata>true</lockdata>`.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LockMode {
+    /// Don't lock anything; Jellyfin remains free to rewrite NFOs.
+    None,
+    /// Lock tvshow.nfo only. Season/episode NFOs stay mutable.
+    Show,
+    /// Lock tvshow.nfo, season.nfo, and episode.nfo.
+    All,
 }
