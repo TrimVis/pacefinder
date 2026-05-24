@@ -264,9 +264,14 @@ fn plan_episode_assets(
     stats: &mut EpisodeStats,
 ) -> HashMap<u32, PathBuf> {
     let mut arc_folders: HashMap<u32, PathBuf> = HashMap::new();
-    let total = matched.len();
+    // Collapse regular + Extended pairs for the same (arc, episode):
+    // Extended wins on disk. Demoted files get warned about (no NFO
+    // written for them; user runs cleanup --remove-superseded to move
+    // them aside).
+    let winners = pick_winning_files(matched);
+    let total = winners.len();
 
-    for (i, (media_path, parsed)) in matched.iter().enumerate() {
+    for (i, (media_path, parsed)) in winners.iter().enumerate() {
         // Prefer CRC-based identification (Google Sheet) when the filename
         // has a CRC — that's the canonical (arc, episode) for the exact
         // file. Fall back to filename-derived arc + episode otherwise.
@@ -278,7 +283,7 @@ fn plan_episode_assets(
 
         // Per-episode errors are logged and skipped, not propagated — a
         // flaky upstream shouldn't poison the whole library refresh.
-        let episode = match source.episode(&arc_norm, episode_number) {
+        let mut episode = match source.episode(&arc_norm, episode_number) {
             Ok(Some(ep)) => ep,
             Ok(None) => {
                 warn!(
@@ -303,6 +308,12 @@ fn plan_episode_assets(
             }
         };
 
+        // Surface the variant in the title so users see "Arlong Park 5
+        // (Extended)" in Jellyfin instead of just "Arlong Park 5".
+        if parsed.extended {
+            episode.title = format!("{} (Extended)", episode.title);
+        }
+
         let nfo_path = media_path.with_extension("nfo");
         let label = format!(
             "S{season:02}E{number:02} ({i}/{total})",
@@ -326,6 +337,46 @@ fn plan_episode_assets(
     }
 
     arc_folders
+}
+
+/// For each (arc, episode) slot, pick the one file whose NFO we'll
+/// actually emit. Extended wins when both a regular and Extended cut
+/// exist; warns on the discarded file so the user can act.
+fn pick_winning_files(matched: &[(PathBuf, ParsedFile)]) -> Vec<&(PathBuf, ParsedFile)> {
+    use std::collections::hash_map::Entry;
+    let mut slots: HashMap<(String, u32), &(PathBuf, ParsedFile)> = HashMap::new();
+    for entry in matched {
+        let key = (normalize_arc(&entry.1.arc), entry.1.episode);
+        match slots.entry(key) {
+            Entry::Vacant(v) => {
+                v.insert(entry);
+            }
+            Entry::Occupied(mut o) => {
+                let current = *o.get();
+                if entry.1.extended && !current.1.extended {
+                    warn!(
+                        superseded = %current.0.display(),
+                        kept = %entry.0.display(),
+                        "regular cut superseded by Extended — run `pacefinder cleanup --remove-superseded` to move the regular aside",
+                    );
+                    o.insert(entry);
+                } else if !entry.1.extended && current.1.extended {
+                    warn!(
+                        superseded = %entry.0.display(),
+                        kept = %current.0.display(),
+                        "regular cut superseded by Extended — run `pacefinder cleanup --remove-superseded` to move the regular aside",
+                    );
+                } else {
+                    warn!(
+                        kept = %current.0.display(),
+                        duplicate = %entry.0.display(),
+                        "two files for the same (arc, episode) with the same variant — keeping first",
+                    );
+                }
+            }
+        }
+    }
+    slots.into_values().collect()
 }
 
 fn plan_season_assets(
@@ -565,4 +616,63 @@ fn execute_one(write: PendingWrite, dry_run: bool, summary: &mut ApplySummary) -
     }
     summary.wrote += 1;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str, arc: &str, ep: u32, extended: bool) -> (PathBuf, ParsedFile) {
+        (
+            PathBuf::from(path),
+            ParsedFile {
+                arc: arc.into(),
+                episode: ep,
+                crc32: None,
+                resolution: Some("1080p".into()),
+                extended,
+            },
+        )
+    }
+
+    #[test]
+    fn pick_winning_files_extended_supersedes_regular() {
+        let matched = vec![
+            entry("/lib/arc/regular.mkv", "Arlong Park", 5, false),
+            entry("/lib/arc/extended.mkv", "Arlong Park", 5, true),
+        ];
+        let winners = pick_winning_files(&matched);
+        assert_eq!(winners.len(), 1);
+        assert!(winners[0].1.extended);
+    }
+
+    #[test]
+    fn pick_winning_files_keeps_unpaired_regular() {
+        let matched = vec![entry("/lib/arc/r.mkv", "Wano", 1, false)];
+        let winners = pick_winning_files(&matched);
+        assert_eq!(winners.len(), 1);
+        assert!(!winners[0].1.extended);
+    }
+
+    #[test]
+    fn pick_winning_files_distinct_episodes_independent() {
+        let matched = vec![
+            entry("/lib/wano/r1.mkv", "Wano", 1, false),
+            entry("/lib/wano/r2.mkv", "Wano", 2, false),
+        ];
+        let winners = pick_winning_files(&matched);
+        assert_eq!(winners.len(), 2);
+    }
+
+    #[test]
+    fn pick_winning_files_pairs_via_normalized_arc() {
+        // Different folder casing → same normalized arc → pair.
+        let matched = vec![
+            entry("/lib/x/r.mkv", "arlong park", 5, false),
+            entry("/lib/y/e.mkv", "Arlong Park", 5, true),
+        ];
+        let winners = pick_winning_files(&matched);
+        assert_eq!(winners.len(), 1);
+        assert!(winners[0].1.extended);
+    }
 }
