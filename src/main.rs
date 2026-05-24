@@ -1,5 +1,6 @@
 mod cleanup;
 mod cli;
+mod dl;
 mod generate;
 mod matcher;
 mod model;
