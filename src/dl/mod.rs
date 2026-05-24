@@ -1,4 +1,3 @@
-#![allow(dead_code)] // removed once `download` subcommand wires this in
 //! Download subsystem.
 //!
 //! `dl` is sibling to `nfo` and `source` because fetching media is its own
@@ -8,16 +7,12 @@
 //! Public surface:
 //!
 //! - [`Release`] — one downloadable item: a parsed filename + the magnet URI.
-//! - [`parse_magnet`] — pull the display name + trackers + info-hash out of
-//!   a magnet URI without taking a dep on a full magnet-link crate.
-//! - [`DownloadClient`] — trait every backend (qBittorrent, future
-//!   Transmission, Deluge, …) implements.
+//! - [`parse_magnet`] — pull the display name + info-hash out of a magnet
+//!   URI without taking a dep on a full magnet-link crate.
+//! - [`qbittorrent::QbtClient`] — the only download backend today. A
+//!   trait abstraction lands when there's a second client to slot in.
 
 pub mod qbittorrent;
-
-use std::path::Path;
-
-use anyhow::Result;
 
 use crate::matcher::ParsedFile;
 
@@ -45,37 +40,15 @@ impl Release {
     }
 }
 
-/// Trait every download backend implements. Today only qBittorrent ships
-/// in tree; designed so adding Transmission/Deluge is one module each.
-pub trait DownloadClient {
-    /// Human-readable backend name; used in log lines.
-    fn name(&self) -> &'static str;
-
-    /// Display names (basenames) of every torrent the client currently
-    /// holds. Used to dedupe — we don't re-queue something already in
-    /// the client.
-    fn list_torrent_names(&self) -> Result<Vec<String>>;
-
-    /// Queue a magnet for download. `save_path` is where the resulting
-    /// file should land; `category` is an optional organizational tag
-    /// (qBittorrent's concept; ignored by clients that don't support it).
-    fn add_magnet(
-        &self,
-        magnet: &str,
-        save_path: &Path,
-        category: Option<&str>,
-    ) -> Result<()>;
-}
-
 // ---------- magnet parsing ----------
 
-/// Just enough of a magnet URI to be useful: the BitTorrent info-hash,
-/// the display name (URL-decoded), and the list of trackers.
+/// Just enough of a magnet URI to be useful: the BitTorrent info-hash
+/// and the display name (URL-decoded). Trackers are passed through
+/// untouched in the raw magnet string; we don't need them parsed.
 #[derive(Debug, Clone)]
 pub struct ParsedMagnet {
     pub btih: String,
     pub display_name: Option<String>,
-    pub trackers: Vec<String>,
 }
 
 /// Parse a `magnet:?…` URI into its useful components. Returns `None` if
@@ -86,7 +59,6 @@ pub fn parse_magnet(uri: &str) -> Option<ParsedMagnet> {
 
     let mut btih = None;
     let mut display_name = None;
-    let mut trackers = Vec::new();
 
     for pair in body.split('&') {
         let (k, v) = pair.split_once('=')?;
@@ -97,7 +69,6 @@ pub fn parse_magnet(uri: &str) -> Option<ParsedMagnet> {
                 }
             }
             "dn" => display_name = Some(urldecode_plus(v)),
-            "tr" => trackers.push(urldecode_plus(v)),
             _ => {}
         }
     }
@@ -105,7 +76,6 @@ pub fn parse_magnet(uri: &str) -> Option<ParsedMagnet> {
     Some(ParsedMagnet {
         btih: btih?,
         display_name,
-        trackers,
     })
 }
 
@@ -121,7 +91,10 @@ fn urldecode_plus(input: &str) -> String {
             '%' => {
                 let h1 = iter.next();
                 let h2 = iter.next();
-                match (h1.and_then(|c| c.to_digit(16)), h2.and_then(|c| c.to_digit(16))) {
+                match (
+                    h1.and_then(|c| c.to_digit(16)),
+                    h2.and_then(|c| c.to_digit(16)),
+                ) {
                     (Some(a), Some(b)) => bytes.push(((a << 4) | b) as u8),
                     _ => {
                         // Malformed — preserve as literal.
@@ -190,16 +163,13 @@ mod tests {
     fn parses_typical_one_pace_magnet() {
         let uri = "magnet:?xt=urn:btih:73e0d240e57bf1143a5684a654eee46275a13ef5\
                    &dn=%5BOne+Pace%5D%5B123-126%5D+Little+Garden+04+%5B1080p%5D%5BCA509241%5D.mkv\
-                   &tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce\
-                   &tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce";
+                   &tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce";
         let m = parse_magnet(uri).unwrap();
         assert_eq!(m.btih, "73e0d240e57bf1143a5684a654eee46275a13ef5");
         assert_eq!(
             m.display_name.as_deref(),
             Some("[One Pace][123-126] Little Garden 04 [1080p][CA509241].mkv"),
         );
-        assert_eq!(m.trackers.len(), 2);
-        assert_eq!(m.trackers[0], "http://nyaa.tracker.wf:7777/announce");
     }
 
     #[test]

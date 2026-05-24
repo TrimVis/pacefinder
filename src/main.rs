@@ -1,6 +1,7 @@
 mod cleanup;
 mod cli;
 mod dl;
+mod download;
 mod generate;
 mod matcher;
 mod model;
@@ -80,6 +81,35 @@ fn main() -> Result<()> {
                 non_interactive,
                 display_order: display_order.as_kodi().to_string(),
                 lock,
+            },
+        ),
+        Command::Download {
+            path,
+            qbt_url,
+            qbt_user,
+            qbt_pass,
+            qbt_category,
+            resolution,
+            cache_ttl,
+            refresh,
+            dry_run,
+            prepopulate_nfo,
+            refresh_existing,
+            only_arc,
+        } => download::run(
+            &path,
+            download::Options {
+                qbt_url,
+                qbt_user,
+                qbt_pass,
+                qbt_category,
+                resolution,
+                cache_ttl,
+                refresh,
+                dry_run,
+                prepopulate_nfo,
+                refresh_existing,
+                only_arc,
             },
         ),
     }

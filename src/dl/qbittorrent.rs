@@ -11,27 +11,14 @@
 //! and slap it on every subsequent request as a `Cookie:` header. No
 //! cookie-jar dep needed.
 //!
-//! Stub implementation; not yet wired into the CLI.
-
-#![allow(dead_code)]
-
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::Path;
 use ureq::Agent;
-
-use super::DownloadClient;
 
 pub struct QbtClient {
     agent: Agent,
     base: String,
     sid: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct Torrent {
-    pub name: String,
-    pub category: String,
-    pub state: String,
 }
 
 impl QbtClient {
@@ -48,11 +35,7 @@ impl QbtClient {
         let url = format!("{base}/api/v2/auth/login");
         // qBittorrent expects form-encoded credentials and a Referer that
         // matches the base URL (its CSRF guard).
-        let body = format!(
-            "username={}&password={}",
-            urlencode(user),
-            urlencode(pass),
-        );
+        let body = format!("username={}&password={}", urlencode(user), urlencode(pass),);
         let resp = agent
             .post(&url)
             .header("Referer", &base)
@@ -60,15 +43,18 @@ impl QbtClient {
             .send(body.as_bytes())
             .with_context(|| format!("POST {url}"))?;
 
-        let sid = extract_sid_cookie(&resp)
-            .ok_or_else(|| anyhow!("qbittorrent login: no SID cookie in response (bad credentials?)"))?;
+        let sid = extract_sid_cookie(&resp).ok_or_else(|| {
+            anyhow!("qbittorrent login: no SID cookie in response (bad credentials?)")
+        })?;
 
         // Body of a successful auth is the literal "Ok." string; "Fails."
         // means wrong credentials. The cookie check is the real signal.
         Ok(Self { agent, base, sid })
     }
 
-    pub fn list_torrents(&self) -> Result<Vec<Torrent>> {
+    /// Basenames of every torrent currently in the client. Used to dedupe
+    /// — we skip re-queueing what's already there.
+    pub fn list_torrent_names(&self) -> Result<Vec<String>> {
         let url = format!("{}/api/v2/torrents/info", self.base);
         let mut resp = self
             .agent
@@ -84,32 +70,16 @@ impl QbtClient {
             serde_json::from_str(&body).context("parsing torrents/info JSON")?;
         Ok(arr
             .into_iter()
-            .map(|v| Torrent {
-                name: v
-                    .get("name")
+            .map(|v| {
+                v.get("name")
                     .and_then(|n| n.as_str())
                     .unwrap_or_default()
-                    .to_string(),
-                category: v
-                    .get("category")
-                    .and_then(|n| n.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                state: v
-                    .get("state")
-                    .and_then(|n| n.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
+                    .to_string()
             })
             .collect())
     }
 
-    pub fn add_magnet(
-        &self,
-        magnet: &str,
-        save_path: &Path,
-        category: Option<&str>,
-    ) -> Result<()> {
+    pub fn add_magnet(&self, magnet: &str, save_path: &Path, category: Option<&str>) -> Result<()> {
         let url = format!("{}/api/v2/torrents/add", self.base);
         let mut body = format!(
             "urls={}&savepath={}&autoTMM=false",
@@ -134,29 +104,6 @@ impl QbtClient {
             bail!("qbittorrent torrents/add failed (HTTP {status}): {text}");
         }
         Ok(())
-    }
-}
-
-impl DownloadClient for QbtClient {
-    fn name(&self) -> &'static str {
-        "qbittorrent"
-    }
-
-    fn list_torrent_names(&self) -> Result<Vec<String>> {
-        Ok(self
-            .list_torrents()?
-            .into_iter()
-            .map(|t| t.name)
-            .collect())
-    }
-
-    fn add_magnet(
-        &self,
-        magnet: &str,
-        save_path: &Path,
-        category: Option<&str>,
-    ) -> Result<()> {
-        QbtClient::add_magnet(self, magnet, save_path, category)
     }
 }
 

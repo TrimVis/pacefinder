@@ -118,6 +118,72 @@ pub enum Command {
         #[arg(long, conflicts_with = "dry_run")]
         remove: bool,
     },
+    /// Queue missing releases for download via a torrent client (qBittorrent).
+    /// Diffs the upstream /releases page against your library + the client's
+    /// current queue, adds each missing magnet with `save_path` set to the
+    /// matching arc folder. Queue-and-go — no waiting, no progress bars.
+    Download {
+        /// Series-root for the library (same as `generate`). Arc folders
+        /// live here; new downloads land in `<library>/<arc-folder>/`.
+        path: PathBuf,
+
+        /// qBittorrent Web UI URL. Env: `PACEFINDER_QBT_URL`.
+        #[arg(
+            long,
+            env = "PACEFINDER_QBT_URL",
+            default_value = "http://localhost:8080"
+        )]
+        qbt_url: String,
+
+        /// qBittorrent username. Env: `PACEFINDER_QBT_USER`.
+        #[arg(long, env = "PACEFINDER_QBT_USER", default_value = "admin")]
+        qbt_user: String,
+
+        /// qBittorrent password. Prefer the env var to keep it out of
+        /// shell history. Env: `PACEFINDER_QBT_PASS`.
+        #[arg(long, env = "PACEFINDER_QBT_PASS", default_value = "adminadmin")]
+        qbt_pass: String,
+
+        /// Optional qBittorrent category to tag queued torrents with.
+        #[arg(long)]
+        qbt_category: Option<String>,
+
+        /// Max acceptable vertical resolution. Releases above this are
+        /// skipped; below = accepted (best available ≤ this).
+        #[arg(long, default_value = "1080p")]
+        resolution: String,
+
+        /// Cache TTL for the /releases fetch (humantime: 7d, 24h, 30m).
+        #[arg(long, default_value = "1h", value_parser = parse_humantime)]
+        cache_ttl: Duration,
+
+        /// Bypass the on-disk HTTP cache when fetching /releases.
+        #[arg(long)]
+        refresh: bool,
+
+        /// Resolve and log actions without authenticating to qBittorrent
+        /// or queueing anything.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Pre-populate an `episode.nfo` next to each queued torrent's
+        /// target path. When the .mkv arrives, Jellyfin picks it up with
+        /// metadata already in place. Run `pacefinder generate` first
+        /// for tvshow.nfo / season.nfo.
+        #[arg(long)]
+        prepopulate_nfo: bool,
+
+        /// Re-queue episodes whose CRC is already in your library
+        /// (treats them as if missing). Useful when upstream re-encodes
+        /// and you want the new version.
+        #[arg(long)]
+        refresh_existing: bool,
+
+        /// Only consider releases whose arc name contains this substring
+        /// (case-insensitive). Useful for trying it out on one arc first.
+        #[arg(long)]
+        only_arc: Option<String>,
+    },
     /// Inspect or clear the on-disk HTTP cache
     Cache {
         #[command(subcommand)]
