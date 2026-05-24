@@ -798,7 +798,10 @@ mod tests {
             false,
         );
         assert_eq!(chosen.len(), 1);
-        assert_eq!(chosen[0].parsed.as_ref().unwrap().crc32.as_deref(), Some("REG00001"));
+        assert_eq!(
+            chosen[0].parsed.as_ref().unwrap().crc32.as_deref(),
+            Some("REG00001")
+        );
     }
 
     #[test]

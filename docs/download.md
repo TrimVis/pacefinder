@@ -103,8 +103,14 @@ exists upstream for an episode, you get that one regardless.
 The "have" check stays CRC-based — if you've already got the regular
 on disk, queueing the Extended will *add* it (you'll end up with both
 files for that episode until you tidy up). Run `pacefinder cleanup
---remove-superseded` afterwards to move the regulars out of the way
-(see [troubleshooting](troubleshooting.md) once that lands).
+--remove-superseded` afterwards to move the regulars into
+`<library>/_replaced/` (reversible — review and delete when you're
+sure).
+
+If the Extended cuts were downloaded into per-cut folders (the upstream
+torrents are distributed that way), run `pacefinder cleanup
+--migrate-extended-folders` first to move the `.mkv` files into the
+parent arc folder.
 
 ## Known limitations
 

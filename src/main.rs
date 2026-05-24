@@ -62,7 +62,17 @@ fn main() -> Result<()> {
             path,
             dry_run,
             remove,
-        } => cleanup::run(&path, cleanup::Options { dry_run, remove }),
+            remove_superseded,
+            migrate_extended_folders,
+        } => cleanup::run(
+            &path,
+            cleanup::Options {
+                dry_run,
+                remove,
+                remove_superseded,
+                migrate_extended_folders,
+            },
+        ),
         Command::Generate {
             path,
             dry_run,

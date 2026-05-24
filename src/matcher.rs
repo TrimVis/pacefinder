@@ -40,13 +40,9 @@ pub fn arc_from_folder_name(name: &str) -> Option<String> {
 /// Per-cut Extended pseudo-folder: `[One Pace] <Arc> <ep#> Extended`.
 /// Distinct from a real arc folder (no chapter-range bracket, no resolution).
 /// Returns `(arc_name, episode_number)` if `name` matches the shape.
-#[allow(dead_code)] // used by cleanup --migrate-extended-folders (stage 4)
 pub fn extended_folder_arc_ep(name: &str) -> Option<(String, u32)> {
     let caps = FOLDER_EXTENDED_RE.captures(name)?;
-    Some((
-        caps["arc"].trim().to_string(),
-        caps["ep"].parse().ok()?,
-    ))
+    Some((caps["arc"].trim().to_string(), caps["ep"].parse().ok()?))
 }
 
 // Chapter ranges in the wild appear in several shapes:
@@ -85,7 +81,6 @@ static FOLDER_ARC_RE: LazyLock<Regex> = LazyLock::new(|| {
 // Per-cut Extended pseudo-folder shape: `[One Pace] <Arc> <ep#> Extended`.
 // No chapter range, no resolution — that's how the upstream torrents are
 // distributed for Extended releases.
-#[allow(dead_code)] // used by cleanup --migrate-extended-folders (stage 4)
 static FOLDER_EXTENDED_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
@@ -286,10 +281,8 @@ mod tests {
 
     #[test]
     fn regular_filenames_have_extended_false() {
-        let p = ParsedFile::from_filename(
-            "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv",
-        )
-        .unwrap();
+        let p = ParsedFile::from_filename("[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv")
+            .unwrap();
         assert!(!p.extended);
     }
 

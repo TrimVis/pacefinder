@@ -120,6 +120,19 @@ pub enum Command {
         /// Empty directories aren't recreated.
         #[arg(long, conflicts_with = "dry_run")]
         remove: bool,
+
+        /// Move regular cuts aside when an Extended cut for the same
+        /// (arc, episode) is present in the library. Destination is
+        /// `<series-root>/_replaced/` (reversible — review and delete
+        /// when you're sure).
+        #[arg(long)]
+        remove_superseded: bool,
+
+        /// Move Extended `.mkv` files out of per-cut pseudo-folders
+        /// (`[One Pace] <Arc> <N> Extended/`) into the matching parent
+        /// arc folder. `rmdir`s the now-empty pseudo-folder.
+        #[arg(long)]
+        migrate_extended_folders: bool,
     },
     /// Queue missing releases for download via a torrent client (qBittorrent).
     /// Diffs the upstream /releases page against your library + the client's
