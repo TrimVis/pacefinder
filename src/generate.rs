@@ -479,17 +479,17 @@ fn apply_plan(pending: Vec<PendingWrite>, opts: &Options) -> Result<ApplySummary
         execute_one(write, opts.dry_run, &mut summary)?;
     }
 
-    if conflicts.is_empty() {
-        return Ok(summary);
+    if !conflicts.is_empty() {
+        resolve_conflicts(conflicts, opts, &mut summary)?;
     }
-    resolve_conflicts(conflicts, opts, &mut summary)
+    Ok(summary)
 }
 
 fn resolve_conflicts(
     conflicts: Vec<(PendingWrite, WriteStatus)>,
     opts: &Options,
     summary: &mut ApplySummary,
-) -> Result<ApplySummary> {
+) -> Result<()> {
     if opts.dry_run {
         warn!(
             "[dry-run] {} item(s) would be skipped or need a decision (foreign / user-edited / changed poster). \
@@ -500,11 +500,7 @@ fn resolve_conflicts(
             info!(would_conflict = %c.path.display(), reason = ?status, "[dry-run] {}", c.label);
         }
         summary.skipped += conflicts.len();
-        return Ok(ApplySummary {
-            wrote: summary.wrote,
-            skipped: summary.skipped,
-            unchanged: summary.unchanged,
-        });
+        return Ok(());
     }
     if opts.force {
         info!(
@@ -514,11 +510,7 @@ fn resolve_conflicts(
         for (w, _) in conflicts {
             execute_one(w, false, summary)?;
         }
-        return Ok(ApplySummary {
-            wrote: summary.wrote,
-            skipped: summary.skipped,
-            unchanged: summary.unchanged,
-        });
+        return Ok(());
     }
     if opts.non_interactive {
         warn!(
@@ -529,11 +521,7 @@ fn resolve_conflicts(
             warn!(skipped = %c.path.display(), "  {}", c.label);
         }
         summary.skipped += conflicts.len();
-        return Ok(ApplySummary {
-            wrote: summary.wrote,
-            skipped: summary.skipped,
-            unchanged: summary.unchanged,
-        });
+        return Ok(());
     }
 
     // Interactive: require a TTY. Silently skipping when piped to /dev/null
@@ -574,11 +562,7 @@ fn resolve_conflicts(
         );
         summary.skipped += conflicts.len();
     }
-    Ok(ApplySummary {
-        wrote: summary.wrote,
-        skipped: summary.skipped,
-        unchanged: summary.unchanged,
-    })
+    Ok(())
 }
 
 fn execute_one(write: PendingWrite, dry_run: bool, summary: &mut ApplySummary) -> Result<()> {
