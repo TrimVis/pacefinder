@@ -175,6 +175,7 @@ mod tests {
                 episode: 1,
                 crc32: None,
                 resolution: Some("720p".into()),
+                extended: false,
             }),
         };
         assert_eq!(r.height(), Some(720));

@@ -1,7 +1,9 @@
 //! Parse One Pace release filenames.
 //!
-//! Episode files follow: `[One Pace][<chapter-range>] <Arc Name> <ep#> [<res>][<CRC>].ext`
+//! Episode files follow: `[One Pace][<chapter-range>] <Arc Name> <ep#> [Extended] [<res>][<CRC>].ext`
+//! (Extended is an optional variant marker — see `ParsedFile::extended`.)
 //! Arc folders follow:   `[One Pace][<chapter-range>] <Arc Name> [<res>]`
+//! Per-cut Extended pseudo-folders: `[One Pace] <Arc Name> <ep#> Extended`
 
 use regex_lite::Regex;
 use std::path::Path;
@@ -16,6 +18,10 @@ pub struct ParsedFile {
     /// "480p", "640x480 x265 AAC". Used by the `download` subcommand to
     /// pick the best release ≤ user's max.
     pub resolution: Option<String>,
+    /// True for Extended-cut releases — `[One Pace][...] <Arc> <ep> Extended [...]`.
+    /// Same (arc, episode) as the regular cut; the Extended replaces the
+    /// regular when the user opts in via `download --prefer-extended`.
+    pub extended: bool,
 }
 
 /// True if `name` looks like an arc folder: `[One Pace][<range>] <Arc> [<res>]`.
@@ -29,6 +35,18 @@ pub fn arc_from_folder_name(name: &str) -> Option<String> {
     FOLDER_ARC_RE
         .captures(name)
         .map(|caps| caps["arc"].trim().to_string())
+}
+
+/// Per-cut Extended pseudo-folder: `[One Pace] <Arc> <ep#> Extended`.
+/// Distinct from a real arc folder (no chapter-range bracket, no resolution).
+/// Returns `(arc_name, episode_number)` if `name` matches the shape.
+#[allow(dead_code)] // used by cleanup --migrate-extended-folders (stage 4)
+pub fn extended_folder_arc_ep(name: &str) -> Option<(String, u32)> {
+    let caps = FOLDER_EXTENDED_RE.captures(name)?;
+    Some((
+        caps["arc"].trim().to_string(),
+        caps["ep"].parse().ok()?,
+    ))
 }
 
 // Chapter ranges in the wild appear in several shapes:
@@ -64,8 +82,25 @@ static FOLDER_ARC_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+// Per-cut Extended pseudo-folder shape: `[One Pace] <Arc> <ep#> Extended`.
+// No chapter range, no resolution — that's how the upstream torrents are
+// distributed for Extended releases.
+#[allow(dead_code)] // used by cleanup --migrate-extended-folders (stage 4)
+static FOLDER_EXTENDED_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?x)
+        ^\[One\ Pace\]
+        \s+(?P<arc>.+?)
+        \s+(?P<ep>\d+)
+        \s+Extended$
+        ",
+    )
+    .expect("static regex")
+});
+
 // Episode files where the arc is broken into numbered episodes:
-//   [One Pace][<range>] <Arc> <ep> [<res>][<crc>].<ext>
+//   [One Pace][<range>] <Arc> <ep> [Extended] [<res>][<crc>].<ext>
+// `Extended` is optional — same (arc, episode) as the regular cut.
 static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r"(?x)
@@ -73,6 +108,7 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
         \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
         \s+(?P<ep>\d+)
+        (?:\s+(?P<variant>Extended))?
         \s+\[(?P<res>[^\]]+)\]
         (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.[A-Za-z0-9]+$
@@ -82,7 +118,7 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 // Single-file arcs where the entire season is one file with no episode number:
-//   [One Pace][<range>] <Arc> [<res>][<crc>].<ext>
+//   [One Pace][<range>] <Arc> [Extended] [<res>][<crc>].<ext>
 // Treated as episode 1 of the matching season.
 static FILE_RE_SINGLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
@@ -90,6 +126,7 @@ static FILE_RE_SINGLE: LazyLock<Regex> = LazyLock::new(|| {
         ^\[One\ Pace\]
         \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
+        (?:\s+(?P<variant>Extended))?
         \s+\[(?P<res>[^\]]+)\]
         (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.[A-Za-z0-9]+$
@@ -111,6 +148,7 @@ impl ParsedFile {
                 episode: caps["ep"].parse().ok()?,
                 crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
                 resolution: caps.name("res").map(|m| m.as_str().to_string()),
+                extended: caps.name("variant").is_some(),
             });
         }
         let caps = FILE_RE_SINGLE.captures(name)?;
@@ -119,6 +157,7 @@ impl ParsedFile {
             episode: 1,
             crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
             resolution: caps.name("res").map(|m| m.as_str().to_string()),
+            extended: caps.name("variant").is_some(),
         })
     }
 }
@@ -231,6 +270,56 @@ mod tests {
     #[test]
     fn arc_folder_regex_accepts_open_ended_range() {
         assert!(is_arc_folder_name("[One Pace][1058-] Egghead [1080p]"));
+    }
+
+    #[test]
+    fn parses_extended_token_in_filename() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][79-81] Arlong Park 05 Extended [1080p][ACD6AA5F].mkv",
+        )
+        .unwrap();
+        assert_eq!(p.arc, "Arlong Park");
+        assert_eq!(p.episode, 5);
+        assert!(p.extended);
+        assert_eq!(p.crc32.as_deref(), Some("ACD6AA5F"));
+    }
+
+    #[test]
+    fn regular_filenames_have_extended_false() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv",
+        )
+        .unwrap();
+        assert!(!p.extended);
+    }
+
+    #[test]
+    fn parses_extended_in_single_file_arc() {
+        let p = ParsedFile::from_filename(
+            "[One Pace][35-75] The Adventures of Buggy's Crew Extended [1080p][E75794DB].mkv",
+        )
+        .unwrap();
+        assert_eq!(p.arc, "The Adventures of Buggy's Crew");
+        assert!(p.extended);
+        assert_eq!(p.episode, 1);
+    }
+
+    #[test]
+    fn extended_folder_arc_ep_recognizes_per_cut_shape() {
+        assert_eq!(
+            extended_folder_arc_ep("[One Pace] Arlong Park 05 Extended"),
+            Some(("Arlong Park".into(), 5)),
+        );
+        assert_eq!(
+            extended_folder_arc_ep("[One Pace] Egghead 13 Extended"),
+            Some(("Egghead".into(), 13)),
+        );
+        // Real arc folders shouldn't match — they have chapter ranges + res.
+        assert_eq!(
+            extended_folder_arc_ep("[One Pace][1-7] Romance Dawn [1080p]"),
+            None,
+        );
+        assert_eq!(extended_folder_arc_ep("Random folder"), None);
     }
 
     #[test]

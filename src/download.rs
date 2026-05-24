@@ -636,6 +636,7 @@ mod tests {
                 episode: ep,
                 crc32: Some(crc.into()),
                 resolution: Some(res.into()),
+                extended: false,
             }),
         }
     }
