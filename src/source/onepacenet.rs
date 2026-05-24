@@ -147,6 +147,9 @@ fn extract_releases(rsc: &str) -> Vec<Release> {
     let mut releases = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let bytes = rsc.as_bytes();
+
+    // Format A: RSC T-chunk — `<id>:T<length-in-hex>,magnet:?…`. The byte
+    // length tells us exactly how many bytes of magnet URI to read.
     for cap in MAGNET_CHUNK_RE.captures_iter(rsc) {
         let length_hex = cap.get(2).expect("group 2 always present").as_str();
         let Ok(length) = usize::from_str_radix(length_hex, 16) else {
@@ -162,31 +165,49 @@ fn extract_releases(rsc: &str) -> Vec<Release> {
         let Ok(uri) = std::str::from_utf8(&bytes[magnet_start..magnet_end]) else {
             continue;
         };
-        let Some(parsed_magnet) = parse_magnet(uri) else {
-            continue;
-        };
-        if !seen.insert(parsed_magnet.btih.clone()) {
-            continue; // same torrent listed twice
-        }
-        let filename = parsed_magnet.display_name.clone().unwrap_or_default();
-        let parsed = ParsedFile::from_filename(&filename);
-        releases.push(Release {
-            magnet: uri.to_string(),
-            filename,
-            parsed,
-        });
+        ingest_magnet(uri, &mut seen, &mut releases);
     }
+
+    // Format B: JSON-embedded — `"magnet:?…"`. Same payload also packages
+    // the historical listing as JSX objects with a `magnetHref` property;
+    // those magnets are surrounded by JSON-string quotes rather than
+    // prefixed by a T-chunk header. The two formats are disjoint in the
+    // payload but share btihs, so dedup happens in ingest_magnet.
+    for cap in MAGNET_JSON_RE.captures_iter(rsc) {
+        let uri = cap.get(1).expect("group 1 always present").as_str();
+        ingest_magnet(uri, &mut seen, &mut releases);
+    }
+
     releases
 }
 
-/// Each magnet on `/releases` is the content of one RSC "text" chunk
-/// prefixed by `<id>:T<length-in-hex>,`. The byte length tells us exactly
-/// how many bytes of magnet URI to read, so we don't have to disambiguate
-/// the boundary between adjacent chunks (the trailing "announce" of one
-/// magnet shares hex characters with the next chunk's header, which made
-/// the previous boundary-by-lookahead approach unreliable).
+fn ingest_magnet(uri: &str, seen: &mut std::collections::HashSet<String>, out: &mut Vec<Release>) {
+    let Some(parsed_magnet) = parse_magnet(uri) else {
+        return;
+    };
+    if !seen.insert(parsed_magnet.btih.clone()) {
+        return; // same torrent listed in both formats / multiple times
+    }
+    let filename = parsed_magnet.display_name.clone().unwrap_or_default();
+    let parsed = ParsedFile::from_filename(&filename);
+    out.push(Release {
+        magnet: uri.to_string(),
+        filename,
+        parsed,
+    });
+}
+
+/// Format A: RSC T-chunk header `<id>:T<length-in-hex>,` immediately
+/// followed by `magnet:?`. The chunk length tells us how many bytes the
+/// magnet URI is.
 static MAGNET_CHUNK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([0-9a-f]+):T([0-9a-f]+),magnet:\?").unwrap());
+
+/// Format B: JSON-embedded magnet — quote-terminated string value
+/// (typically the `"magnetHref"` field of a JSX listing object). The
+/// magnet URI is fully URL-encoded so it can't contain `"`.
+static MAGNET_JSON_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""(magnet:\?[^"]+)""#).unwrap());
 
 fn build_timeline(segments: Vec<Segment>) -> Timeline {
     let mut number = 0u32;
@@ -336,6 +357,29 @@ mod tests {
         let rsc = "11:Tffff,magnet:?xt=urn:btih:abc&dn=x";
         let releases = extract_releases(rsc);
         assert!(releases.is_empty());
+    }
+
+    #[test]
+    fn extract_releases_picks_up_json_embedded_magnets() {
+        // Format B: magnet URI as a quoted JSON-string value, no T-chunk
+        // prefix. Mimics the historical-listing shape on /releases.
+        let m = "magnet:?xt=urn:btih:json01\
+                 &dn=%5BOne+Pace%5D%5B1%5D+Romance+Dawn+01+%5B1080p%5D%5BJJJJJJJJ%5D.mkv";
+        let rsc = format!(r#"{{"infoHref":"https://x","magnetHref":"{m}","other":"x"}}"#);
+        let releases = extract_releases(&rsc);
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].magnet, m);
+    }
+
+    #[test]
+    fn extract_releases_combines_both_formats_and_dedups() {
+        // Same btih appears in both formats; dedup keeps only one.
+        let m = "magnet:?xt=urn:btih:both01\
+                 &dn=%5BOne+Pace%5D%5B1%5D+Romance+Dawn+01+%5B1080p%5D%5BBBBBBBBB%5D.mkv";
+        let len = format!("{:x}", m.len());
+        let rsc = format!(r#"11:T{len},{m}"magnetHref":"{m}""#);
+        let releases = extract_releases(&rsc);
+        assert_eq!(releases.len(), 1, "btih dedupes across formats");
     }
 
     #[test]
