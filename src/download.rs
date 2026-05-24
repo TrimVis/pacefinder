@@ -74,8 +74,13 @@ impl PathMap {
         if host.is_empty() || container.is_empty() {
             bail!("--save-path-map sides must be non-empty: {s:?}");
         }
+        // Canonicalize the host side so symlinked library roots still match
+        // the prefix check. Falls back to the lexical path if the host
+        // prefix doesn't exist locally (cross-machine setups).
+        let host_path = PathBuf::from(host);
+        let host_canon = host_path.canonicalize().unwrap_or(host_path);
         Ok(Self {
-            host: PathBuf::from(host),
+            host: host_canon,
             container: PathBuf::from(container),
         })
     }
@@ -229,8 +234,13 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
                 );
             }
         } else if let Some(qbt) = qbt.as_ref() {
-            qbt.add_magnet(&release.magnet, &save_path, opts.qbt_category.as_deref())
-                .with_context(|| format!("queueing {}", release.filename))?;
+            if let Err(e) =
+                qbt.add_magnet(&release.magnet, &save_path, opts.qbt_category.as_deref())
+            {
+                warn!(file = %release.filename, error = %e, "queue failed; continuing");
+                stats.queue_failed += 1;
+                continue;
+            }
             info!(file = %release.filename, save_path = %save_path.display(), "queued");
         }
         stats.queued += 1;
@@ -256,9 +266,16 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         already_queued = stats.already_queued,
         unparseable = stats.unparseable,
         no_crc = stats.no_crc,
+        queue_failed = stats.queue_failed,
         prepopulate_failed = stats.prepopulate_failed,
         "done",
     );
+    if stats.queue_failed > 0 {
+        bail!(
+            "{} torrent(s) failed to queue (see warnings above)",
+            stats.queue_failed
+        );
+    }
     Ok(())
 }
 
@@ -297,6 +314,7 @@ struct RunStats {
     already_queued: usize,
     unparseable: usize,
     no_crc: usize,
+    queue_failed: usize,
     prepopulate_failed: usize,
 }
 
@@ -338,7 +356,13 @@ fn pick_best_per_episode(
 fn library_crcs(root: &Path) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
     for entry in WalkDir::new(root).follow_links(false) {
-        let Ok(entry) = entry else { continue };
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(error = %e, "skipping unreadable path during library scan");
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }

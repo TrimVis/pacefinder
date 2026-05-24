@@ -146,12 +146,22 @@ fn find_segments(root: &Value) -> Option<&Value> {
 fn extract_releases(rsc: &str) -> Vec<Release> {
     let mut releases = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for cap in MAGNET_IN_RSC_RE.find_iter(rsc) {
-        let uri = cap.as_str();
-        // Strip any trailing artifact from the regex match (we anchor up
-        // to the next `T<hex>,` chunk boundary or end of line; trim
-        // anything past the last valid tracker).
-        let uri = uri.trim_end_matches(|c: char| c.is_ascii_digit() || c == ':');
+    let bytes = rsc.as_bytes();
+    for cap in MAGNET_CHUNK_RE.captures_iter(rsc) {
+        let length_hex = cap.get(2).expect("group 2 always present").as_str();
+        let Ok(length) = usize::from_str_radix(length_hex, 16) else {
+            continue;
+        };
+        // `magnet:?` is 8 ASCII bytes at the tail of the match — back up
+        // there to find the start of the chunk content.
+        let magnet_start = cap.get(0).expect("match always present").end() - 8;
+        let magnet_end = magnet_start + length;
+        if magnet_end > bytes.len() {
+            continue;
+        }
+        let Ok(uri) = std::str::from_utf8(&bytes[magnet_start..magnet_end]) else {
+            continue;
+        };
         let Some(parsed_magnet) = parse_magnet(uri) else {
             continue;
         };
@@ -169,12 +179,14 @@ fn extract_releases(rsc: &str) -> Vec<Release> {
     releases
 }
 
-/// Matches `magnet:?...` URIs greedily up to (but not including) the next
-/// chunk boundary marker `<digits>:T<hex>,` that the RSC stream uses
-/// to glue together text blobs. Trailing junk gets trimmed in
-/// [`extract_releases`].
-static MAGNET_IN_RSC_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"magnet:\?[^\s\n]+?(?:announce|$)").unwrap());
+/// Each magnet on `/releases` is the content of one RSC "text" chunk
+/// prefixed by `<id>:T<length-in-hex>,`. The byte length tells us exactly
+/// how many bytes of magnet URI to read, so we don't have to disambiguate
+/// the boundary between adjacent chunks (the trailing "announce" of one
+/// magnet shares hex characters with the next chunk's header, which made
+/// the previous boundary-by-lookahead approach unreliable).
+static MAGNET_CHUNK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([0-9a-f]+):T([0-9a-f]+),magnet:\?").unwrap());
 
 fn build_timeline(segments: Vec<Segment>) -> Timeline {
     let mut number = 0u32;
@@ -256,6 +268,27 @@ mod tests {
             description: "d".into(),
             special,
         }
+    }
+
+    #[test]
+    fn extract_releases_uses_chunk_length_and_keeps_full_trackers() {
+        // Two adjacent T-chunks; the first ends in "announce" whose `e`
+        // is a hex char, which previously confused boundary detection.
+        let magnet_a = "magnet:?xt=urn:btih:aaaa\
+                       &dn=%5BOne+Pace%5D%5B1%5D+Romance+Dawn+01+%5B1080p%5D%5BAAAAAAAA%5D.mkv\
+                       &tr=http%3A%2F%2Ftracker.one%2Fannounce\
+                       &tr=http%3A%2F%2Ftracker.two%2Fannounce";
+        let magnet_b = "magnet:?xt=urn:btih:bbbb\
+                       &dn=%5BOne+Pace%5D%5B2%5D+Orange+Town+01+%5B720p%5D%5BBBBBBBBB%5D.mkv\
+                       &tr=http%3A%2F%2Ftracker.three%2Fannounce";
+        let len_a = format!("{:x}", magnet_a.len());
+        let len_b = format!("{:x}", magnet_b.len());
+        let rsc = format!("11:T{len_a},{magnet_a}c2:T{len_b},{magnet_b}");
+        let releases = extract_releases(&rsc);
+        assert_eq!(releases.len(), 2);
+        assert_eq!(releases[0].magnet, magnet_a, "first tracker preserved");
+        assert_eq!(releases[1].magnet, magnet_b);
+        assert_eq!(releases[0].magnet.matches("&tr=").count(), 2);
     }
 
     #[test]

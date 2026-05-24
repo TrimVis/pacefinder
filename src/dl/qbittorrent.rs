@@ -36,7 +36,7 @@ impl QbtClient {
         // qBittorrent expects form-encoded credentials and a Referer that
         // matches the base URL (its CSRF guard).
         let body = format!("username={}&password={}", urlencode(user), urlencode(pass),);
-        let resp = agent
+        let mut resp = agent
             .post(&url)
             .header("Referer", &base)
             .header("Content-Type", "application/x-www-form-urlencoded")
@@ -46,9 +46,15 @@ impl QbtClient {
         let sid = extract_sid_cookie(&resp).ok_or_else(|| {
             anyhow!("qbittorrent login: no SID cookie in response (bad credentials?)")
         })?;
-
-        // Body of a successful auth is the literal "Ok." string; "Fails."
-        // means wrong credentials. The cookie check is the real signal.
+        // Some qBittorrent builds set SID even on lockout — confirm the
+        // body. Successful auth is the literal "Ok.".
+        let body = resp
+            .body_mut()
+            .read_to_string()
+            .context("reading login response body")?;
+        if body.trim().eq_ignore_ascii_case("Fails.") {
+            bail!("qbittorrent login: server returned 'Fails.' (wrong credentials or lockout)");
+        }
         Ok(Self { agent, base, sid })
     }
 
