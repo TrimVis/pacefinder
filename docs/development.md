@@ -50,9 +50,8 @@ docker compose down
 rm -rf docker/jellyfin-config docker/jellyfin-cache
 ```
 
-After `generate` runs, Jellyfin won't auto-refresh items it has already
-indexed. See [troubleshooting](troubleshooting.md#my-re-run-didnt-update-the-metadata-in-jellyfin)
-for the per-item refresh trick.
+For the post-`generate` refresh trick, see
+[troubleshooting](troubleshooting.md#my-re-run-didnt-update-the-metadata-in-jellyfin).
 
 ## Project layout
 
@@ -60,25 +59,30 @@ for the per-item refresh trick.
 src/
   main.rs         entry, tracing setup, dispatch
   cli.rs          clap argument structs
+  fs_util.rs      canonicalize_root + friends shared across subcommands
   generate.rs     `generate` subcommand
+  download.rs     `download` subcommand (orchestration)
   reorder.rs      `reorder` subcommand
   cleanup.rs      `cleanup` subcommand (rmdir empty / .ignore foreign)
   scan.rs         `scan` subcommand + shared video-extension filter
   matcher.rs      filename → ParsedFile + arc-name normalization
   model.rs        domain types (Series, Season, Episode, NamedSeason)
+  dl/
+    mod.rs        Release + magnet parser
+    qbittorrent.rs qBittorrent Web API client
   nfo/
     kodi.rs       Kodi NFO XML shapes (parse + serialize)
     writer.rs     NFO write helpers (series, season, episode)
   source/
-    mod.rs        DataSource trait, ImageKind
+    mod.rs        DataSource trait, ImageKind, default_chain
     cache.rs      on-disk HTTP cache (ureq + sha256-keyed)
     composite.rs  fallthrough source chain
-    onepacenet.rs onepace.net /watch RSC adapter
+    onepacenet.rs onepace.net /watch + /releases RSC adapter
     spykernz.rs   SpykerNZ GitHub-blob adapter
     sheet.rs      Google Sheet adapter (CRC oracle + episode synthesis)
 docker/
   compose.yaml    Jellyfin 10.11 test harness
-docs/             user + developer docs (this file, troubleshooting, data sources)
+docs/             user + developer docs (this file, troubleshooting, data sources, download)
 testlib/          (gitignored) sample One Pace media for local dev
 ```
 

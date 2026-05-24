@@ -1,15 +1,22 @@
 # PaceFinder
 
-**Run `pacefinder generate /path/to/your/library/One\ Pace` and your
-[One Pace](https://onepace.net) fan-cut files will show up as proper
-seasons in Jellyfin, Plex, and Kodi — correct titles, plots, posters,
-S/E numbering.**
+**A CLI for managing a [One Pace](https://onepace.net) fan-cut media
+library. It writes Kodi-format NFO sidecars + posters so Jellyfin / Plex /
+Kodi show each arc as a proper season, queues missing releases to
+qBittorrent, and keeps the on-disk layout tidy.**
 
-PaceFinder walks a One Pace media library, matches each file to its arc
-and episode, fetches metadata from a chain of upstream sources
-(onepace.net, the SpykerNZ NFO bundle, a community CRC sheet — see
-[docs/data-sources.md](docs/data-sources.md) for details), and writes
-Kodi-format NFO sidecars + posters next to your media.
+Three things, one parser:
+
+- **`generate`** — match each file to its arc/episode against a chain of
+  upstream sources (onepace.net, SpykerNZ NFO bundle, community CRC
+  sheet — see [docs/data-sources.md](docs/data-sources.md)) and write
+  NFOs + posters next to your media.
+- **`download`** — diff your library against upstream `/releases` and
+  queue what's missing to qBittorrent, each torrent's `save_path` aimed
+  at the right arc folder. See [docs/download.md](docs/download.md).
+- **`reorder`** / **`cleanup`** — one-time wrap of flat arc folders into
+  a series wrapper; ongoing tidy of orphan folders that Jellyfin would
+  otherwise surface as ghost seasons.
 
 ## Install
 
@@ -123,17 +130,24 @@ cargo install --path .   # from a cloned checkout
 Requires Rust stable 1.85+ (for edition 2024). `rustup` picks the right
 channel up from `rust-toolchain.toml` automatically.
 
-## Run
+## Quick start
 
 ```sh
+# (if your library is flat) wrap arc folders in a series wrapper
+pacefinder reorder /path/to/library
+
+# write NFOs + posters so Jellyfin shows arcs as seasons
 pacefinder generate "/path/to/library/One Pace"
+
+# (optional) queue everything you're missing to qBittorrent
+PACEFINDER_QBT_PASS=hunter2 pacefinder download "/path/to/library/One Pace"
 ```
 
 | Command | Description |
 |---|---|
-| `generate <series-root>` | Fetch metadata and write NFOs + posters next to every recognized file. |
+| `generate <series-root>` | Write NFOs + posters next to every recognized file. |
 | `download <series-root>` | Queue missing releases to qBittorrent. Per-arc `save_path`, optional `--prepopulate-nfo`. See [docs/download.md](docs/download.md). |
-| `scan <path>` | Walk the path and list recognized video files; useful diagnostic. |
+| `scan <path>` | List recognized video files. Useful diagnostic. |
 | `reorder <path>` | One-time setup: wrap top-level arc folders inside a series folder when your layout is flat. |
 | `cleanup <series-root>` | `rmdir` empty arc folders, write `.ignore` into folders with only foreign content. `--remove` undoes our `.ignore` writes. |
 | `cache path` / `cache clear` | Show where cached upstream responses live, or wipe them. |
@@ -143,9 +157,13 @@ Global flags: `-v` / `-vv` (more verbose), `-q` / `-qq` / `-qqq` (less),
 `--log <directive>` (power-user `tracing-subscriber` filter; also reads
 `PACEFINDER_LOG`).
 
-`generate` flags: `--dry-run` (preview), `--refresh` (bypass cache),
-`--cache-ttl 7d` (humantime, default `7d`), `--force` / `--non-interactive`
-(overwrite-conflict policy — see `pacefinder generate --help`).
+Notable `generate` flags (run `--help` for the full set): `--dry-run`,
+`--refresh` (bypass cache), `--cache-ttl 7d`, `--force` /
+`--non-interactive` (overwrite-conflict policy), `--display-order`
+(`absolute` default — flat 1..N episode list across arcs; `aired` for the
+season-card grouping), `--lock` (`show` default — emit
+`<lockdata>true</lockdata>` so Jellyfin's metadata explorer stops
+rewriting NFOs; `all` to lock season/episode NFOs too).
 
 ## Required library layout
 

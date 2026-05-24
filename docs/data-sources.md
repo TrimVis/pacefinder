@@ -2,16 +2,8 @@
 
 PaceFinder pulls metadata from multiple upstream sources through a pluggable
 `DataSource` trait. Sources are tried in order; the first to return data
-wins per field. The chain isn't load-bearing — adding or removing a source
-is a one-line change in `src/generate.rs::build_source`.
-
-## Why this exists
-
-The previous community plugin (`jwueller/jellyfin-plugin-onepace`) relied on
-the One Pace GraphQL API, which was retired when the site was rebuilt in
-early 2026. PaceFinder takes a different approach: a media-server-agnostic
-CLI that emits NFO files, pulling metadata from several upstreams and
-composing the results.
+wins per field. The chain is configured in `src/source/mod.rs::default_chain`
+— a one-line change to add or reorder.
 
 ## The default chain
 
@@ -32,13 +24,10 @@ composing the results.
 
 ## Coverage caveat — sheet CRCs
 
-The sheet lists CRCs for the *latest re-encode* of each episode. Older
-releases in your library will not match by CRC; they fall through to the
-filename-derived arc + episode-number path (which still works fine — that's
-the original behavior). If your library is mostly recent encodes, CRC
-override fires often; if mostly older, it's mostly a no-op. Either way the
-data still flows from SpykerNZ + sheet synthesis, so coverage doesn't
-degrade.
+The sheet only tracks the *latest re-encode* of each episode. Older files
+in your library fall through to filename-derived arc + episode-number
+identification, which still works fine — CRC override is an enhancement,
+not a requirement.
 
 ## Arc-name aliases
 
@@ -56,8 +45,8 @@ each, no infra changes needed.
 ## Adding a new source
 
 Implement `crate::source::DataSource` for your adapter, expose a
-constructor, and add it to the `Vec` in `src/generate.rs::build_source`.
-The trait has default implementations for the rarely-used method
-(`identify_by_crc`), so an adapter that only does one or two things stays
-small. See `src/source/onepacenet.rs` for a minimal example (season-only)
-and `src/source/sheet.rs` for a richer one.
+constructor, and add it to the `Vec` in `src/source/mod.rs::default_chain`.
+`identify_by_crc` has a default `Ok(None)` impl, so an adapter that only
+provides series/season/episode metadata stays small. See
+`src/source/onepacenet.rs` for a minimal example (season-only) and
+`src/source/sheet.rs` for a richer one.
