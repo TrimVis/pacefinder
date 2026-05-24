@@ -183,6 +183,13 @@ pub enum Command {
         /// (case-insensitive). Useful for trying it out on one arc first.
         #[arg(long)]
         only_arc: Option<String>,
+
+        /// Translate save paths from the host filesystem to qBittorrent's
+        /// view. Format: `HOST=CONTAINER` (e.g. `/mnt/media=/downloads`).
+        /// Needed when qBittorrent runs in a container or other namespace
+        /// with a different mount table. Env: `PACEFINDER_SAVE_PATH_MAP`.
+        #[arg(long, env = "PACEFINDER_SAVE_PATH_MAP")]
+        save_path_map: Option<String>,
     },
     /// Inspect or clear the on-disk HTTP cache
     Cache {

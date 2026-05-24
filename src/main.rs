@@ -96,6 +96,7 @@ fn main() -> Result<()> {
             prepopulate_nfo,
             refresh_existing,
             only_arc,
+            save_path_map,
         } => download::run(
             &path,
             download::Options {
@@ -110,6 +111,7 @@ fn main() -> Result<()> {
                 prepopulate_nfo,
                 refresh_existing,
                 only_arc,
+                save_path_map,
             },
         ),
     }

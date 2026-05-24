@@ -72,20 +72,58 @@ episode, the new release has a different CRC and we'll see it as missing
 
 ## Save-path traps
 
-`--save_path` is set per torrent to `<library>/<arc-folder>`. PaceFinder
+`save_path` is set per torrent to `<library>/<arc-folder>`. PaceFinder
 matches existing arc folders by normalized arc name; if no match it
-proposes `<library>/[One Pace] <Arc Name>`. **Watch for this when**:
+proposes `<library>/[One Pace] <Arc Name>`. The path qBittorrent
+receives is **always from qBittorrent's POV**, not pacefinder's — so
+when the two don't share a filesystem view, you need `--save-path-map`.
 
-- **qBittorrent runs in a Docker container.** The `save_path` is from
-  qBittorrent's POV. If your library is at `/mnt/media/one-pace` on the
-  host but mounted at `/downloads/one-pace` in the container, you need
-  to pass the in-container path to pacefinder. The CLI doesn't know
-  about your container's mount table.
-- **qBittorrent runs as a different user.** The user qBittorrent runs
-  as needs write permission to `<library>/<arc-folder>`.
+### `--save-path-map HOST=CONTAINER`
 
-If you hit either of those, run with `--dry-run` first and check that
-the printed `save_path` makes sense from qBittorrent's side.
+Translates each `save_path` from the host filesystem to qBittorrent's
+view. Standard *arr-app "Remote Path Mappings" pattern.
+
+```sh
+# library at /mnt/media/anime/One Pace on the host;
+# qBittorrent runs in a container with /mnt/media bind-mounted to /downloads
+pacefinder download "/mnt/media/anime/One Pace" \
+    --save-path-map "/mnt/media=/downloads"
+```
+
+Internally: `<host>/<rest>` → `<container>/<rest>`. PaceFinder verifies
+the host prefix is actually a parent of the library root and errors
+early if not (typo guard). Also reads from `PACEFINDER_SAVE_PATH_MAP`,
+e.g. `PACEFINDER_SAVE_PATH_MAP=/mnt/media=/downloads`.
+
+Dry-run shows both the translated `save_path` and the original
+`host_path` so you can sanity-check before live-queueing.
+
+### When you'll need it
+
+- **qBittorrent runs in a Docker container** with a different mount
+  table than the host.
+- **qBittorrent runs as a different user** with a different chroot or
+  bind-mount setup (less common, same fix).
+
+### When you won't
+
+- **Native qBittorrent on the same machine** as where you run pacefinder
+  — the path is the same on both sides; no mapping needed.
+
+### Heuristic warning
+
+On a non-dry-run, after logging in, pacefinder asks qBittorrent for its
+`defaultSavePath` (`GET /api/v2/app/defaultSavePath`). If that path and
+your library root share no prefix and you didn't pass
+`--save-path-map`, you get a `WARN` line suggesting a likely mapping.
+It's a hint, not a block — false positives are possible (your library
+might be elsewhere on purpose).
+
+### Permission caveat
+
+`--save-path-map` only handles the path translation. The qBittorrent
+user still needs write permission to the destination — that's a Docker /
+filesystem concern outside pacefinder's reach.
 
 ## `--prepopulate-nfo`
 

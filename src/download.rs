@@ -17,7 +17,7 @@
 //! `pacefinder generate` after downloads finish (or use `--prepopulate-nfo`
 //! to get most of the way there before the .mkv lands).
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -50,6 +50,45 @@ pub struct Options {
     pub prepopulate_nfo: bool,
     pub refresh_existing: bool,
     pub only_arc: Option<String>,
+    /// `HOST=CONTAINER` — translate save paths from pacefinder's view to
+    /// qBittorrent's view when they differ (Docker mount tables etc.).
+    pub save_path_map: Option<String>,
+}
+
+/// Parsed `--save-path-map`. Trailing slashes on each side are tolerated.
+#[derive(Debug)]
+struct PathMap {
+    host: PathBuf,
+    container: PathBuf,
+}
+
+impl PathMap {
+    fn parse(s: &str) -> Result<Self> {
+        let (host, container) = s.split_once('=').ok_or_else(|| {
+            anyhow!(
+                "--save-path-map must be HOST=CONTAINER (e.g. /mnt/media=/downloads), got {s:?}"
+            )
+        })?;
+        let host = host.trim_end_matches('/');
+        let container = container.trim_end_matches('/');
+        if host.is_empty() || container.is_empty() {
+            bail!("--save-path-map sides must be non-empty: {s:?}");
+        }
+        Ok(Self {
+            host: PathBuf::from(host),
+            container: PathBuf::from(container),
+        })
+    }
+
+    /// Map a host-side path into the container's filesystem view. Returns
+    /// `None` if the path doesn't sit under the configured host prefix
+    /// (caller treats this as a setup mistake).
+    fn translate(&self, host_path: &Path) -> Option<PathBuf> {
+        host_path
+            .strip_prefix(&self.host)
+            .ok()
+            .map(|tail| self.container.join(tail))
+    }
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
@@ -64,6 +103,23 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
 
     let max_height = parse_resolution_cap(&opts.resolution)?;
     let http = Rc::new(CachedHttp::new(opts.cache_ttl)?.refresh(opts.refresh));
+
+    // Parse and validate the save-path map early — fail fast on typos.
+    let path_map = opts
+        .save_path_map
+        .as_deref()
+        .map(PathMap::parse)
+        .transpose()?;
+    if let Some(m) = &path_map
+        && !root.starts_with(&m.host)
+    {
+        bail!(
+            "--save-path-map host prefix {} doesn't apply to library root {} \
+             (the prefix must be a parent of the library path)",
+            m.host.display(),
+            root.display(),
+        );
+    }
 
     // 1. Fetch releases.
     let onepacenet = OnepaceNet::new(http.clone());
@@ -94,6 +150,10 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     } else {
         let client = QbtClient::login(&opts.qbt_url, &opts.qbt_user, &opts.qbt_pass)
             .context("logging in to qBittorrent")?;
+        // Best-effort hint when our save paths probably don't make sense
+        // from qBittorrent's perspective. False positives possible; we
+        // only nudge, never block.
+        warn_if_save_path_likely_unreachable(&client, &root, path_map.as_ref());
         let names = client
             .list_torrent_names()
             .context("listing current qBittorrent torrents")?;
@@ -137,15 +197,37 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
 
         // Figure out the arc folder we'd want the torrent to land in.
         let arc_folder = find_or_propose_arc_folder(&root, &parsed.arc);
-        let save_path = root.join(&arc_folder);
+        let save_path_host = root.join(&arc_folder);
+        // Translate to qBittorrent's view if a mapping was configured.
+        // `validate_*` above guarantees the prefix matches.
+        let save_path = match &path_map {
+            Some(m) => m.translate(&save_path_host).ok_or_else(|| {
+                anyhow!(
+                    "save path {} fell outside host prefix {} (path map bug?)",
+                    save_path_host.display(),
+                    m.host.display(),
+                )
+            })?,
+            None => save_path_host.clone(),
+        };
 
         if opts.dry_run {
-            info!(
-                magnet = %short_magnet(&release.magnet),
-                save_path = %save_path.display(),
-                file = %release.filename,
-                "[dry-run] would queue",
-            );
+            if path_map.is_some() {
+                info!(
+                    magnet = %short_magnet(&release.magnet),
+                    save_path = %save_path.display(),
+                    host_path = %save_path_host.display(),
+                    file = %release.filename,
+                    "[dry-run] would queue",
+                );
+            } else {
+                info!(
+                    magnet = %short_magnet(&release.magnet),
+                    save_path = %save_path.display(),
+                    file = %release.filename,
+                    "[dry-run] would queue",
+                );
+            }
         } else if let Some(qbt) = qbt.as_ref() {
             qbt.add_magnet(&release.magnet, &save_path, opts.qbt_category.as_deref())
                 .with_context(|| format!("queueing {}", release.filename))?;
@@ -359,4 +441,59 @@ fn prepopulate_one(
     writer::write_episode(&nfo_path, &episode, true)?;
     info!(path = %nfo_path.display(), "prepopulated episode.nfo");
     Ok(())
+}
+
+/// Best-effort sanity check: query qBittorrent's default save path and
+/// see if our (host-side) library is anywhere near it. If they share no
+/// common prefix and no `--save-path-map` was set, the user is almost
+/// certainly in the "qbt in a container with a different mount table"
+/// trap and our save_path will fail.
+///
+/// Heuristic and informational only — false positives are tolerable.
+fn warn_if_save_path_likely_unreachable(
+    client: &QbtClient,
+    library_root: &Path,
+    path_map: Option<&PathMap>,
+) {
+    if path_map.is_some() {
+        return; // user opted in explicitly; trust them
+    }
+    let Ok(qbt_default) = client.default_save_path() else {
+        return; // older qBittorrent or unreachable endpoint; skip the hint
+    };
+    if qbt_default.is_empty() {
+        return;
+    }
+    let qbt_root = Path::new(&qbt_default);
+    if library_root.starts_with(qbt_root) || qbt_root.starts_with(library_root) {
+        return; // shared prefix — most likely native or same-mount setup
+    }
+    // Suggest a plausible mapping pair using the topmost components of
+    // each path; the user can adjust.
+    let host_hint =
+        top_component(library_root).unwrap_or_else(|| library_root.display().to_string());
+    let container_hint = top_component(qbt_root).unwrap_or_else(|| qbt_root.display().to_string());
+    warn!(
+        "qBittorrent's default save path is {qbt_default:?} but your library is at {} — \
+         their paths don't share a prefix. If qBittorrent runs in a container or under \
+         a different mount table, the save_path pacefinder sends will not be reachable. \
+         Consider --save-path-map {}={} (adjust to match your setup).",
+        library_root.display(),
+        host_hint,
+        container_hint,
+    );
+}
+
+/// Return the leading path component (after the root `/`) as a string,
+/// for use in the path-map hint message. `/mnt/media/x/y` → `/mnt`.
+fn top_component(p: &Path) -> Option<String> {
+    let mut comps = p.components();
+    // Skip the root prefix if present.
+    if let Some(std::path::Component::RootDir) = comps.next() {
+        comps
+            .next()
+            .map(|c| format!("/{}", c.as_os_str().to_string_lossy()))
+    } else {
+        None
+    }
 }

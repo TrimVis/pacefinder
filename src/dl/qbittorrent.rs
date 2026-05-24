@@ -79,6 +79,25 @@ impl QbtClient {
             .collect())
     }
 
+    /// qBittorrent's configured default download path, e.g. `/downloads`.
+    /// Used by the caller to detect when our computed save_path probably
+    /// won't work from the client's perspective (mismatched mount tables
+    /// between pacefinder's host and qBittorrent's container).
+    pub fn default_save_path(&self) -> Result<String> {
+        let url = format!("{}/api/v2/app/defaultSavePath", self.base);
+        let mut resp = self
+            .agent
+            .get(&url)
+            .header("Cookie", format!("SID={}", self.sid))
+            .call()
+            .with_context(|| format!("GET {url}"))?;
+        let body = resp
+            .body_mut()
+            .read_to_string()
+            .context("reading defaultSavePath body")?;
+        Ok(body.trim().to_string())
+    }
+
     pub fn add_magnet(&self, magnet: &str, save_path: &Path, category: Option<&str>) -> Result<()> {
         let url = format!("{}/api/v2/torrents/add", self.base);
         let mut body = format!(
