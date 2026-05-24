@@ -19,6 +19,27 @@ Force it with one of:
   `$SERIES_ID` comes from
   `GET /Items?IncludeItemTypes=Series&recursive=true`.
 
+## I locked metadata and Jellyfin won't show the new values
+
+`pacefinder generate --lock all` (or `--lock show`) writes
+`<lockdata>true</lockdata>` into the NFO. Jellyfin reads that on scan
+and copies the lock state into its own database — from then on it
+treats those items as user-locked and **ignores** further NFO changes,
+even after you `--refresh` and rewrite the NFOs with correct data.
+
+To unstick:
+
+```sh
+pacefinder generate --refresh --force --lock none "/path/to/library/One Pace"
+```
+
+Then in Jellyfin: right-click the series → *Refresh metadata* →
+*Replace all metadata* + *Replace existing images* + *Recursive*.
+Because the NFOs no longer claim `lockdata=true`, Jellyfin re-reads them
+and updates its DB. Once it's showing the correct data, re-run with
+`--lock show` if you still want pacefinder's tvshow.nfo locked going
+forward.
+
 ## Ghost seasons with weird numbers like "Season 155217"
 
 Earlier scans registered arc folders as seasons before pacefinder could

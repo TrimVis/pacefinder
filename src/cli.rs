@@ -73,10 +73,13 @@ pub enum Command {
         display_order: DisplayOrder,
 
         /// Emit `<lockdata>true</lockdata>` so Jellyfin's metadata explorer
-        /// stops overwriting our NFOs. `show` (default) locks only
-        /// tvshow.nfo, `all` also locks season.nfo and episode.nfo, `none`
-        /// disables locking entirely.
-        #[arg(long, value_enum, default_value_t = LockMode::Show)]
+        /// stops overwriting our NFOs. `none` (default) — opt into locking
+        /// once you've verified the metadata is correct. `show` locks
+        /// tvshow.nfo only; `all` also locks season.nfo and episode.nfo.
+        /// Heads-up: Jellyfin copies the lock state into its DB on scan
+        /// and then ignores future NFO changes for locked items — see
+        /// docs/troubleshooting.md before using `all`.
+        #[arg(long, value_enum, default_value_t = LockMode::None)]
         lock: LockMode,
     },
     /// Walk a media directory and report what was recognized
@@ -313,7 +316,7 @@ mod tests {
             panic!("expected Generate");
         };
         assert!(matches!(display_order, DisplayOrder::Absolute));
-        assert!(matches!(lock, LockMode::Show));
+        assert!(matches!(lock, LockMode::None));
         assert_eq!(cache_ttl, Duration::from_secs(7 * 86400));
         assert!(!refresh);
     }

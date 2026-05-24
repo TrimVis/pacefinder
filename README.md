@@ -161,9 +161,11 @@ Notable `generate` flags (run `--help` for the full set): `--dry-run`,
 `--refresh` (bypass cache), `--cache-ttl 7d`, `--force` /
 `--non-interactive` (overwrite-conflict policy), `--display-order`
 (`absolute` default — flat 1..N episode list across arcs; `aired` for the
-season-card grouping), `--lock` (`show` default — emit
-`<lockdata>true</lockdata>` so Jellyfin's metadata explorer stops
-rewriting NFOs; `all` to lock season/episode NFOs too).
+season-card grouping), `--lock` (`none` default — opt
+into emitting `<lockdata>true</lockdata>` once you're happy with the
+metadata; `show` locks tvshow.nfo, `all` also locks season/episode NFOs.
+Heads-up: Jellyfin copies the lock state into its DB and stops
+re-reading NFOs for locked items — see [docs/troubleshooting.md](docs/troubleshooting.md)).
 
 ## Required library layout
 
