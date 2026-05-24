@@ -230,9 +230,11 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
 
         if opts.prepopulate_nfo
             && let Some(src) = source.as_ref()
+            // NFO writes happen on the host; use the host-side path even
+            // when --save-path-map translated `save_path` for qBittorrent.
             && let Err(e) = prepopulate_one(
                 src.as_ref(),
-                &save_path,
+                &save_path_host,
                 parsed,
                 &release.filename,
                 opts.dry_run,
