@@ -332,4 +332,37 @@ mod tests {
         assert_eq!(strip_leading_number("1. Romance Dawn"), "Romance Dawn");
         assert_eq!(strip_leading_number("plain"), "plain");
     }
+
+    #[test]
+    fn raw_url_combines_base_and_encoded_path() {
+        let url = raw_url("One Pace/Season 1/season.nfo");
+        assert_eq!(
+            url,
+            "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/\
+             One%20Pace/Season%201/season.nfo",
+        );
+    }
+
+    #[test]
+    fn arc_alias_known_mappings() {
+        assert_eq!(arc_alias("whiskey peak"), Some("whisky peak"));
+        assert_eq!(arc_alias("romance dawn"), None);
+    }
+
+    #[test]
+    fn build_index_later_poster_wins() {
+        // HashMap insertion order pins behavior: if both .png and .jpg
+        // exist for the same season slot, the last-inserted wins.
+        let entries = vec![
+            entry("One Pace/season01-poster.png"),
+            entry("One Pace/season01-poster.jpg"),
+        ];
+        let idx = build_index(&entries);
+        let s1 = idx.seasons.get(&1).unwrap();
+        // .jpg comes second; HashMap overwrites.
+        assert_eq!(
+            s1.season_poster.as_deref(),
+            Some("One Pace/season01-poster.jpg"),
+        );
+    }
 }

@@ -179,4 +179,67 @@ mod tests {
         };
         assert_eq!(r.height(), Some(720));
     }
+
+    #[test]
+    fn parse_magnet_skips_key_only_flags() {
+        // Bug-fix regression: a key-only flag (no `=`) used to abort the
+        // whole magnet via split_once('=')?. Should now be ignored.
+        let uri = "magnet:?xt=urn:btih:abc&dht-only&dn=foo";
+        let m = parse_magnet(uri).unwrap();
+        assert_eq!(m.btih, "abc");
+        assert_eq!(m.display_name.as_deref(), Some("foo"));
+    }
+
+    #[test]
+    fn urldecode_plus_basic_escapes() {
+        assert_eq!(urldecode_plus("hello+world"), "hello world");
+        assert_eq!(urldecode_plus("hello%20world"), "hello world");
+        assert_eq!(urldecode_plus("a%2Bb"), "a+b");
+    }
+
+    #[test]
+    fn urldecode_plus_preserves_malformed() {
+        // Trailing `%` with nothing after — preserved as literal.
+        assert_eq!(urldecode_plus("100%"), "100%");
+        // One hex digit then EOF — both kept.
+        assert_eq!(urldecode_plus("100%2"), "100%2");
+        // Non-hex chars after `%` — preserved.
+        assert_eq!(urldecode_plus("%ZZ"), "%ZZ");
+    }
+
+    #[test]
+    fn urldecode_plus_recovers_utf8_sequence() {
+        // %E2%98%83 = ☃ (snowman, U+2603)
+        assert_eq!(urldecode_plus("%E2%98%83"), "\u{2603}");
+    }
+
+    #[test]
+    fn urldecode_plus_replaces_bad_utf8_with_fffd() {
+        // Lone 0xFF byte — invalid UTF-8 → replacement char.
+        assert_eq!(urldecode_plus("%FF"), "\u{FFFD}");
+    }
+
+    #[test]
+    fn height_of_resolution_boundary_values() {
+        assert_eq!(height_of_resolution("240p"), Some(240));
+        assert_eq!(height_of_resolution("2160p"), Some(2160));
+    }
+
+    #[test]
+    fn height_of_resolution_wxh_capital_x() {
+        assert_eq!(height_of_resolution("1920X1080"), Some(1080));
+    }
+
+    #[test]
+    fn height_of_resolution_fallback_picks_max_in_range() {
+        // Plain digits, fallback path enforces 240..=2160 and picks max.
+        assert_eq!(height_of_resolution("480 720 1080 99999"), Some(1080));
+    }
+
+    #[test]
+    fn height_of_resolution_below_range_returns_none() {
+        // 100 is below the 240 floor; the strip_suffix shortcut isn't
+        // taken (no trailing `p`); WxH doesn't apply; fallback rejects.
+        assert_eq!(height_of_resolution("100"), None);
+    }
 }

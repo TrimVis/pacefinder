@@ -39,3 +39,41 @@ pub(crate) fn is_video(path: &Path) -> bool {
         VIDEO_EXTS.contains(&lower.as_str())
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_video_accepts_known_extensions() {
+        for name in ["show.mkv", "movie.mp4", "file.m4v", "old.avi"] {
+            assert!(is_video(Path::new(name)), "{name} should be video");
+        }
+    }
+
+    #[test]
+    fn is_video_case_insensitive() {
+        assert!(is_video(Path::new("SHOW.MKV")));
+        assert!(is_video(Path::new("Movie.Mp4")));
+    }
+
+    #[test]
+    fn is_video_rejects_non_video_extensions() {
+        for name in ["doc.txt", "image.jpg", "subs.srt", "show.webm"] {
+            assert!(!is_video(Path::new(name)), "{name} should not be video");
+        }
+    }
+
+    #[test]
+    fn is_video_rejects_files_without_extension() {
+        assert!(!is_video(Path::new("README")));
+        // Leading-dot file has no Path-extension by Rust semantics.
+        assert!(!is_video(Path::new(".mkv")));
+    }
+
+    #[test]
+    fn is_video_treats_part_suffix_as_real_extension() {
+        // Right behavior: .mkv.part is a download-in-progress — skip it.
+        assert!(!is_video(Path::new("show.mkv.part")));
+    }
+}

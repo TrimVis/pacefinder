@@ -477,3 +477,294 @@ fn top_component(p: &Path) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    // PathMap::parse uses a path that doesn't exist on disk so canonicalize
+    // falls back to lexical — tests don't depend on the host filesystem.
+    const NX: &str = "/nonexistent_pacefinder_test_dir/media";
+
+    #[test]
+    fn pathmap_parse_basic() {
+        let m = PathMap::parse(&format!("{NX}=/downloads")).unwrap();
+        assert_eq!(m.host, PathBuf::from(NX));
+        assert_eq!(m.container, PathBuf::from("/downloads"));
+    }
+
+    #[test]
+    fn pathmap_parse_strips_trailing_slashes() {
+        let m = PathMap::parse(&format!("{NX}/=/downloads/")).unwrap();
+        assert_eq!(m.host, PathBuf::from(NX));
+        assert_eq!(m.container, PathBuf::from("/downloads"));
+    }
+
+    #[test]
+    fn pathmap_parse_first_equals_splits() {
+        // "a=b=c" is allowed: HOST="a", CONTAINER="b=c". Documents the
+        // split_once contract.
+        let m = PathMap::parse("/a=/b=/c").unwrap();
+        assert_eq!(m.host, PathBuf::from("/a"));
+        assert_eq!(m.container, PathBuf::from("/b=/c"));
+    }
+
+    #[test]
+    fn pathmap_parse_rejects_missing_equals() {
+        let err = PathMap::parse("no-equals").unwrap_err().to_string();
+        assert!(err.contains("HOST=CONTAINER"), "got: {err}");
+    }
+
+    #[test]
+    fn pathmap_parse_rejects_empty_sides() {
+        assert!(PathMap::parse("=/c").is_err());
+        assert!(PathMap::parse("/h=").is_err());
+        assert!(PathMap::parse("=").is_err());
+        // "/=/" trims to empty on both sides — rejected.
+        assert!(PathMap::parse("/=/").is_err());
+    }
+
+    #[test]
+    fn pathmap_translate_strips_host_prefix() {
+        let m = PathMap {
+            host: PathBuf::from("/mnt/media"),
+            container: PathBuf::from("/downloads"),
+        };
+        assert_eq!(
+            m.translate(Path::new("/mnt/media/Arc/file.mkv")),
+            Some(PathBuf::from("/downloads/Arc/file.mkv")),
+        );
+    }
+
+    #[test]
+    fn pathmap_translate_exact_match() {
+        let m = PathMap {
+            host: PathBuf::from("/mnt/media"),
+            container: PathBuf::from("/downloads"),
+        };
+        assert_eq!(
+            m.translate(Path::new("/mnt/media")),
+            Some(PathBuf::from("/downloads")),
+        );
+    }
+
+    #[test]
+    fn pathmap_translate_component_aware() {
+        // /mnt/medianext doesn't start with /mnt/media in a path-component
+        // sense — strip_prefix correctly returns None.
+        let m = PathMap {
+            host: PathBuf::from("/mnt/media"),
+            container: PathBuf::from("/downloads"),
+        };
+        assert!(m.translate(Path::new("/mnt/medianext/x")).is_none());
+    }
+
+    #[test]
+    fn pathmap_translate_outside_host_is_none() {
+        let m = PathMap {
+            host: PathBuf::from("/mnt/media"),
+            container: PathBuf::from("/downloads"),
+        };
+        assert!(m.translate(Path::new("/other/path")).is_none());
+    }
+
+    #[test]
+    fn parse_resolution_cap_handles_common_forms() {
+        assert_eq!(parse_resolution_cap("1080p").unwrap(), 1080);
+        assert_eq!(parse_resolution_cap("720p").unwrap(), 720);
+        assert_eq!(parse_resolution_cap("1080").unwrap(), 1080);
+        assert_eq!(parse_resolution_cap("  480p  ").unwrap(), 480);
+    }
+
+    #[test]
+    fn parse_resolution_cap_accepts_uppercase_p() {
+        assert_eq!(parse_resolution_cap("1080P").unwrap(), 1080);
+    }
+
+    #[test]
+    fn parse_resolution_cap_rejects_garbage() {
+        assert!(parse_resolution_cap("").is_err());
+        assert!(parse_resolution_cap("garbage").is_err());
+        assert!(parse_resolution_cap("4k").is_err());
+        assert!(parse_resolution_cap("1080p60").is_err());
+    }
+
+    #[test]
+    fn short_magnet_truncates_at_ampersand() {
+        let m = "magnet:?xt=urn:btih:abc&dn=foo&tr=bar";
+        assert_eq!(short_magnet(m), "magnet:?xt=urn:btih:abc…");
+    }
+
+    #[test]
+    fn short_magnet_passes_through_short_input() {
+        let m = "magnet:?xt=urn:btih:abc";
+        assert_eq!(short_magnet(m), m);
+    }
+
+    #[test]
+    fn short_magnet_caps_long_non_magnet_at_80_chars() {
+        let out = short_magnet(&"x".repeat(120));
+        assert_eq!(out.len(), 80);
+    }
+
+    #[test]
+    fn top_component_returns_first_under_root() {
+        assert_eq!(
+            top_component(Path::new("/mnt/media/anime")),
+            Some("/mnt".into()),
+        );
+        assert_eq!(top_component(Path::new("/foo")), Some("/foo".into()));
+    }
+
+    #[test]
+    fn top_component_none_for_root_only() {
+        assert!(top_component(Path::new("/")).is_none());
+    }
+
+    #[test]
+    fn top_component_none_for_relative_path() {
+        assert!(top_component(Path::new("relative/path")).is_none());
+    }
+
+    fn release(arc: &str, ep: u32, res: &str, crc: &str) -> Release {
+        Release {
+            magnet: format!("magnet:?xt=urn:btih:{crc}"),
+            filename: format!("[One Pace][1] {arc} {ep:02} [{res}][{crc}].mkv"),
+            parsed: Some(ParsedFile {
+                arc: arc.into(),
+                episode: ep,
+                crc32: Some(crc.into()),
+                resolution: Some(res.into()),
+            }),
+        }
+    }
+
+    #[test]
+    fn pick_best_picks_highest_within_cap() {
+        let chosen = pick_best_per_episode(
+            vec![
+                release("Wano", 1, "480p", "00000001"),
+                release("Wano", 1, "720p", "00000002"),
+                release("Wano", 1, "1080p", "00000003"),
+            ],
+            1080,
+            None,
+        );
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(
+            chosen[0].parsed.as_ref().unwrap().resolution.as_deref(),
+            Some("1080p"),
+        );
+    }
+
+    #[test]
+    fn pick_best_drops_above_cap() {
+        let chosen = pick_best_per_episode(
+            vec![
+                release("Wano", 1, "720p", "AAA"),
+                release("Wano", 1, "1080p", "BBB"),
+            ],
+            720,
+            None,
+        );
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(
+            chosen[0].parsed.as_ref().unwrap().resolution.as_deref(),
+            Some("720p"),
+        );
+    }
+
+    #[test]
+    fn pick_best_empty_when_all_above_cap() {
+        let chosen = pick_best_per_episode(vec![release("Wano", 1, "1080p", "AAA")], 480, None);
+        assert!(chosen.is_empty());
+    }
+
+    #[test]
+    fn pick_best_keeps_distinct_episodes() {
+        let chosen = pick_best_per_episode(
+            vec![
+                release("Wano", 1, "1080p", "AAA"),
+                release("Wano", 2, "1080p", "BBB"),
+            ],
+            1080,
+            None,
+        );
+        assert_eq!(chosen.len(), 2);
+    }
+
+    #[test]
+    fn pick_best_only_arc_substring_case_insensitive() {
+        let chosen = pick_best_per_episode(
+            vec![
+                release("Wano Act 1", 1, "1080p", "AAA"),
+                release("Romance Dawn", 1, "1080p", "BBB"),
+            ],
+            1080,
+            Some("wano"),
+        );
+        assert_eq!(chosen.len(), 1);
+        assert_eq!(chosen[0].parsed.as_ref().unwrap().arc, "Wano Act 1");
+    }
+
+    #[test]
+    fn pick_best_skips_parseless_releases() {
+        let chosen = pick_best_per_episode(
+            vec![
+                Release {
+                    magnet: "magnet:?xt=urn:btih:xxx".into(),
+                    filename: "garbage.mkv".into(),
+                    parsed: None,
+                },
+                release("Wano", 1, "1080p", "AAA"),
+            ],
+            1080,
+            None,
+        );
+        assert_eq!(chosen.len(), 1);
+    }
+
+    #[test]
+    fn pick_best_groups_by_normalized_arc() {
+        // "Whiskey Peak" and "whiskey-peak" should bucket together via
+        // normalize_arc; one wins.
+        let chosen = pick_best_per_episode(
+            vec![
+                release("Whiskey Peak", 1, "720p", "AAA"),
+                release("whiskey-peak", 1, "1080p", "BBB"),
+            ],
+            1080,
+            None,
+        );
+        assert_eq!(chosen.len(), 1);
+    }
+
+    #[test]
+    fn find_or_propose_arc_folder_exact_match() {
+        let dir = tempdir().unwrap();
+        let arc = "[One Pace][1-7] Romance Dawn [1080p]";
+        std::fs::create_dir_all(dir.path().join(arc)).unwrap();
+        assert_eq!(find_or_propose_arc_folder(dir.path(), "Romance Dawn"), arc,);
+    }
+
+    #[test]
+    fn find_or_propose_arc_folder_substring_fallback() {
+        let dir = tempdir().unwrap();
+        // Non-canonical name — only substring match catches it.
+        std::fs::create_dir_all(dir.path().join("romance dawn")).unwrap();
+        assert_eq!(
+            find_or_propose_arc_folder(dir.path(), "Romance Dawn"),
+            "romance dawn",
+        );
+    }
+
+    #[test]
+    fn find_or_propose_arc_folder_proposes_when_missing() {
+        let dir = tempdir().unwrap();
+        assert_eq!(
+            find_or_propose_arc_folder(dir.path(), "Egghead"),
+            "[One Pace] Egghead",
+        );
+    }
+}

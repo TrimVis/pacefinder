@@ -165,4 +165,52 @@ mod tests {
         let decoded = super::super::urldecode_plus(&encoded);
         assert_eq!(decoded, original);
     }
+
+    fn resp_with_cookies(cookies: &[&str]) -> ureq::http::Response<ureq::Body> {
+        let mut builder = ureq::http::Response::builder();
+        for c in cookies {
+            builder = builder.header("set-cookie", *c);
+        }
+        builder
+            .body(ureq::Body::builder().data(Vec::new()))
+            .unwrap()
+    }
+
+    #[test]
+    fn extract_sid_strips_cookie_attributes() {
+        let r = resp_with_cookies(&["SID=abc123; Path=/; HttpOnly"]);
+        assert_eq!(extract_sid_cookie(&r), Some("abc123".into()));
+    }
+
+    #[test]
+    fn extract_sid_picks_first_header_with_sid() {
+        let r = resp_with_cookies(&["pref=1; Path=/", "SID=second; Path=/"]);
+        assert_eq!(extract_sid_cookie(&r), Some("second".into()));
+    }
+
+    #[test]
+    fn extract_sid_finds_sid_after_other_attrs() {
+        // SID is not the first ;-segment.
+        let r = resp_with_cookies(&["Path=/; SID=mid; HttpOnly"]);
+        assert_eq!(extract_sid_cookie(&r), Some("mid".into()));
+    }
+
+    #[test]
+    fn extract_sid_empty_value_returns_none() {
+        let r = resp_with_cookies(&["SID=; Path=/"]);
+        assert_eq!(extract_sid_cookie(&r), None);
+    }
+
+    #[test]
+    fn extract_sid_rejects_prefix_lookalike() {
+        // XSID is not SID — strip_prefix is exact.
+        let r = resp_with_cookies(&["XSID=abc; Path=/"]);
+        assert_eq!(extract_sid_cookie(&r), None);
+    }
+
+    #[test]
+    fn extract_sid_no_cookies_returns_none() {
+        let r = resp_with_cookies(&[]);
+        assert_eq!(extract_sid_cookie(&r), None);
+    }
 }

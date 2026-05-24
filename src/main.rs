@@ -130,3 +130,28 @@ fn level_from_counts(verbose: u8, quiet: u8) -> &'static str {
         (2.., _) => "trace",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_from_counts_default_info() {
+        assert_eq!(level_from_counts(0, 0), "info");
+    }
+
+    #[test]
+    fn level_from_counts_verbose_ladder() {
+        assert_eq!(level_from_counts(1, 0), "debug");
+        assert_eq!(level_from_counts(2, 0), "trace");
+        assert_eq!(level_from_counts(5, 0), "trace");
+    }
+
+    #[test]
+    fn level_from_counts_quiet_ladder() {
+        assert_eq!(level_from_counts(0, 1), "warn");
+        assert_eq!(level_from_counts(0, 2), "error");
+        assert_eq!(level_from_counts(0, 3), "off");
+        assert_eq!(level_from_counts(0, 99), "off");
+    }
+}

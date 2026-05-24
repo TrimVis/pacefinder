@@ -436,6 +436,37 @@ mod tests {
     }
 
     #[test]
+    fn arc_chapter_key_extracts_leading_number() {
+        assert_eq!(arc_chapter_key("[One Pace][1058-] Egghead [720p]"), 1058,);
+        assert_eq!(arc_chapter_key("[One Pace][1-7] Romance Dawn [1080p]"), 1);
+        assert_eq!(arc_chapter_key("[One Pace][42,22] Gaimon [1080p]"), 42);
+        assert_eq!(arc_chapter_key("no brackets"), 0);
+    }
+
+    #[test]
+    fn collect_arc_dirs_sorts_numerically_not_lexically() {
+        // Bug-fix regression: lex sort would put [1058-] between [1-7] and [2-3].
+        let dir = tempdir().unwrap();
+        make_arc(dir.path(), "[One Pace][1058-] Egghead [720p]");
+        make_arc(dir.path(), "[One Pace][2-3] Orange Town [1080p]");
+        make_arc(dir.path(), "[One Pace][1-7] Romance Dawn [1080p]");
+
+        let dirs = collect_arc_dirs(dir.path()).unwrap();
+        let names: Vec<&str> = dirs
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "[One Pace][1-7] Romance Dawn [1080p]",
+                "[One Pace][2-3] Orange Town [1080p]",
+                "[One Pace][1058-] Egghead [720p]",
+            ],
+        );
+    }
+
+    #[test]
     fn apply_writes_ignore_with_marker() {
         let dir = tempdir().unwrap();
         let arc = make_arc(dir.path(), ARC_NAME);

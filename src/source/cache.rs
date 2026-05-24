@@ -135,4 +135,86 @@ impl CachedHttp {
         let digest = hex::encode(hasher.finalize());
         self.cache_dir.join(format!("{digest}.bin"))
     }
+
+    #[cfg(test)]
+    fn for_test(cache_dir: PathBuf, ttl: Duration) -> Self {
+        Self {
+            agent: Agent::config_builder().build().into(),
+            cache_dir,
+            ttl,
+            refresh: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+
+    fn touch(dir: &Path, name: &str) -> PathBuf {
+        let p = dir.join(name);
+        File::create(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn is_fresh_true_for_recent_file() {
+        let dir = tempdir().unwrap();
+        let p = touch(dir.path(), "a.bin");
+        let http = CachedHttp::for_test(dir.path().to_path_buf(), Duration::from_secs(300));
+        assert!(http.is_fresh(&p));
+    }
+
+    #[test]
+    fn is_fresh_false_for_stale_file() {
+        let dir = tempdir().unwrap();
+        let p = touch(dir.path(), "a.bin");
+        File::open(&p)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(3600))
+            .unwrap();
+        let http = CachedHttp::for_test(dir.path().to_path_buf(), Duration::from_secs(60));
+        assert!(!http.is_fresh(&p));
+    }
+
+    #[test]
+    fn is_fresh_true_for_future_mtime() {
+        // Bug-fix regression: clock skew (NTP, container time jump) used
+        // to flip the file to stale and force a re-download.
+        let dir = tempdir().unwrap();
+        let p = touch(dir.path(), "a.bin");
+        File::open(&p)
+            .unwrap()
+            .set_modified(SystemTime::now() + Duration::from_secs(60))
+            .unwrap();
+        let http = CachedHttp::for_test(dir.path().to_path_buf(), Duration::from_secs(300));
+        assert!(http.is_fresh(&p), "future mtime should count as fresh");
+    }
+
+    #[test]
+    fn is_fresh_false_for_missing_file() {
+        let dir = tempdir().unwrap();
+        let http = CachedHttp::for_test(dir.path().to_path_buf(), Duration::from_secs(60));
+        assert!(!http.is_fresh(&dir.path().join("not-here.bin")));
+    }
+
+    #[test]
+    fn path_for_keyed_distinguishes_url_header_and_value() {
+        let dir = tempdir().unwrap();
+        let http = CachedHttp::for_test(dir.path().to_path_buf(), Duration::from_secs(60));
+        let plain_a = http.path_for_keyed("https://a", &[]);
+        let plain_b = http.path_for_keyed("https://b", &[]);
+        assert_ne!(plain_a, plain_b, "different URLs → different paths");
+
+        let with_hdr = http.path_for_keyed("https://a", &[("RSC", "1")]);
+        assert_ne!(plain_a, with_hdr, "added header → different path");
+
+        let with_other_value = http.path_for_keyed("https://a", &[("RSC", "2")]);
+        assert_ne!(with_hdr, with_other_value, "header value matters");
+
+        let same_again = http.path_for_keyed("https://a", &[("RSC", "1")]);
+        assert_eq!(with_hdr, same_again, "same key → same path");
+    }
 }

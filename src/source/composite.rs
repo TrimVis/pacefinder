@@ -81,7 +81,9 @@ mod tests {
         season: Option<Season>,
         episode: Option<Episode>,
         image: Option<Vec<u8>>,
+        crc: Option<(String, u32)>,
         series_err: bool,
+        crc_err: bool,
         calls: RefCell<Vec<&'static str>>,
     }
 
@@ -93,7 +95,9 @@ mod tests {
                 season: None,
                 episode: None,
                 image: None,
+                crc: None,
                 series_err: false,
+                crc_err: false,
                 calls: RefCell::new(Vec::new()),
             }
         }
@@ -103,6 +107,14 @@ mod tests {
         }
         fn failing_series(mut self) -> Self {
             self.series_err = true;
+            self
+        }
+        fn with_crc(mut self, arc: &str, ep: u32) -> Self {
+            self.crc = Some((arc.into(), ep));
+            self
+        }
+        fn failing_crc(mut self) -> Self {
+            self.crc_err = true;
             self
         }
     }
@@ -130,6 +142,14 @@ mod tests {
         fn image(&self, _: ImageKind) -> Result<Option<Vec<u8>>> {
             self.calls.borrow_mut().push("image");
             Ok(self.image.clone())
+        }
+        fn identify_by_crc(&self, _: &str) -> Result<Option<(String, u32)>> {
+            self.calls.borrow_mut().push("identify_by_crc");
+            if self.crc_err {
+                Err(anyhow!("intentional"))
+            } else {
+                Ok(self.crc.clone())
+            }
         }
     }
 
@@ -193,5 +213,35 @@ mod tests {
         assert!(composite.season(1).unwrap().is_none());
         assert!(composite.episode("x", 1).unwrap().is_none());
         assert!(composite.image(ImageKind::SeriesPoster).unwrap().is_none());
+    }
+
+    #[test]
+    fn identify_by_crc_first_some_wins() {
+        let first = Rc::new(Stub::empty("a").with_crc("wano", 5));
+        let second = Rc::new(Stub::empty("b").with_crc("egghead", 9));
+        let composite = Composite::new(vec![first.clone(), second.clone()]);
+        let hit = composite.identify_by_crc("CRC").unwrap().unwrap();
+        assert_eq!(hit, ("wano".to_string(), 5));
+        assert!(
+            second.calls.borrow().is_empty(),
+            "second should short-circuit"
+        );
+    }
+
+    #[test]
+    fn identify_by_crc_skips_failing_source() {
+        let first = Rc::new(Stub::empty("a").failing_crc());
+        let second = Rc::new(Stub::empty("b").with_crc("egghead", 9));
+        let composite = Composite::new(vec![first, second]);
+        let hit = composite.identify_by_crc("CRC").unwrap().unwrap();
+        assert_eq!(hit, ("egghead".to_string(), 9));
+    }
+
+    #[test]
+    fn identify_by_crc_all_none_returns_none() {
+        let first = Rc::new(Stub::empty("a"));
+        let second = Rc::new(Stub::empty("b"));
+        let composite = Composite::new(vec![first, second]);
+        assert!(composite.identify_by_crc("CRC").unwrap().is_none());
     }
 }

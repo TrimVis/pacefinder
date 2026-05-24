@@ -246,3 +246,102 @@ pub enum LockMode {
     /// Lock tvshow.nfo, season.nfo, and episode.nfo.
     All,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn display_order_as_kodi_strings() {
+        assert_eq!(DisplayOrder::Absolute.as_kodi(), "absolute");
+        assert_eq!(DisplayOrder::Aired.as_kodi(), "aired");
+        assert_eq!(DisplayOrder::Dvd.as_kodi(), "dvd");
+    }
+
+    #[test]
+    fn parse_humantime_accepts_common_forms() {
+        assert_eq!(
+            parse_humantime("7d").unwrap(),
+            Duration::from_secs(7 * 86400)
+        );
+        assert_eq!(parse_humantime("30m").unwrap(), Duration::from_secs(1800));
+        assert_eq!(parse_humantime("1h").unwrap(), Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn parse_humantime_rejects_garbage() {
+        let err = parse_humantime("garbage").unwrap_err();
+        assert!(err.starts_with("invalid duration"), "got: {err}");
+    }
+
+    #[test]
+    fn clap_verbose_and_quiet_conflict() {
+        let r = Cli::try_parse_from(["pacefinder", "-v", "-q", "scan", "/x"]);
+        assert!(r.is_err(), "expected conflict between -v and -q");
+    }
+
+    #[test]
+    fn clap_generate_force_and_non_interactive_conflict() {
+        let r = Cli::try_parse_from([
+            "pacefinder",
+            "generate",
+            "/x",
+            "--force",
+            "--non-interactive",
+        ]);
+        assert!(r.is_err(), "expected conflict");
+    }
+
+    #[test]
+    fn clap_cleanup_dry_run_and_remove_conflict() {
+        let r = Cli::try_parse_from(["pacefinder", "cleanup", "/x", "--dry-run", "--remove"]);
+        assert!(r.is_err(), "expected conflict");
+    }
+
+    #[test]
+    fn clap_generate_defaults() {
+        let cli = Cli::try_parse_from(["pacefinder", "generate", "/x"]).unwrap();
+        let Command::Generate {
+            display_order,
+            lock,
+            cache_ttl,
+            refresh,
+            ..
+        } = cli.command
+        else {
+            panic!("expected Generate");
+        };
+        assert!(matches!(display_order, DisplayOrder::Absolute));
+        assert!(matches!(lock, LockMode::Show));
+        assert_eq!(cache_ttl, Duration::from_secs(7 * 86400));
+        assert!(!refresh);
+    }
+
+    #[test]
+    fn clap_download_defaults() {
+        let cli = Cli::try_parse_from(["pacefinder", "download", "/x"]).unwrap();
+        let Command::Download {
+            qbt_url,
+            qbt_user,
+            qbt_pass,
+            resolution,
+            cache_ttl,
+            ..
+        } = cli.command
+        else {
+            panic!("expected Download");
+        };
+        assert_eq!(qbt_url, "http://localhost:8080");
+        assert_eq!(qbt_user, "admin");
+        assert_eq!(qbt_pass, "adminadmin");
+        assert_eq!(resolution, "1080p");
+        assert_eq!(cache_ttl, Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn clap_invalid_cache_ttl_errors_via_humantime() {
+        let r = Cli::try_parse_from(["pacefinder", "generate", "/x", "--cache-ttl", "junk"]);
+        assert!(r.is_err());
+    }
+}

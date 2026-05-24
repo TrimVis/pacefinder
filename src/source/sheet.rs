@@ -612,6 +612,55 @@ mod tests {
         assert_eq!(gids, vec![0, 999, 12345]);
     }
 
+    fn cell(v: serde_json::Value, f: Option<&str>) -> Option<GvizCell> {
+        Some(GvizCell {
+            v,
+            f: f.map(|s| s.to_string()),
+        })
+    }
+
+    fn row_with(cells: Vec<Option<GvizCell>>) -> GvizRow {
+        GvizRow { c: cells }
+    }
+
+    #[test]
+    fn cell_str_prefers_formatted_value() {
+        let r = row_with(vec![cell(serde_json::json!(153), Some("Ep. 153"))]);
+        assert_eq!(cell_str(&r, 0).as_deref(), Some("Ep. 153"));
+    }
+
+    #[test]
+    fn cell_str_falls_through_empty_formatted() {
+        let r = row_with(vec![cell(serde_json::json!("raw"), Some(""))]);
+        assert_eq!(cell_str(&r, 0).as_deref(), Some("raw"));
+    }
+
+    #[test]
+    fn cell_str_stringifies_unformatted_primitives() {
+        let r = row_with(vec![
+            cell(serde_json::json!(42), None),
+            cell(serde_json::json!(true), None),
+            cell(serde_json::Value::Null, None),
+        ]);
+        assert_eq!(cell_str(&r, 0).as_deref(), Some("42"));
+        assert_eq!(cell_str(&r, 1).as_deref(), Some("true"));
+        assert_eq!(cell_str(&r, 2), None);
+    }
+
+    #[test]
+    fn cell_str_out_of_bounds_or_null_cell() {
+        let r = row_with(vec![None]);
+        assert_eq!(cell_str(&r, 0), None, "null cell entry");
+        assert_eq!(cell_str(&r, 99), None, "out of bounds");
+    }
+
+    #[test]
+    fn arc_alias_known_mappings() {
+        assert_eq!(arc_alias("arabasta"), Some("alabasta"));
+        assert_eq!(arc_alias("wano act 1"), Some("wano"));
+        assert_eq!(arc_alias("skypiea"), None);
+    }
+
     #[test]
     fn parse_arc_tab_rejects_payload_without_crc_column() {
         let json = r#"{

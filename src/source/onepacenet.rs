@@ -292,6 +292,64 @@ mod tests {
     }
 
     #[test]
+    fn find_segments_locates_nested_key() {
+        let v: Value = serde_json::from_str(
+            r#"{"data":{"timeline":{"segments":[{"title":"x","description":"d","special":false}]}}}"#
+        ).unwrap();
+        assert!(find_segments(&v).is_some());
+    }
+
+    #[test]
+    fn find_segments_none_when_absent() {
+        let v: Value = serde_json::from_str(r#"{"data":{"unrelated":42}}"#).unwrap();
+        assert!(find_segments(&v).is_none());
+    }
+
+    #[test]
+    fn find_segments_finds_in_array_of_objects() {
+        let v: Value = serde_json::from_str(
+            r#"[{"x":1},{"segments":[{"title":"a","description":"b","special":false}]}]"#,
+        )
+        .unwrap();
+        assert!(find_segments(&v).is_some());
+    }
+
+    #[test]
+    fn extract_releases_empty_input() {
+        assert!(extract_releases("").is_empty());
+    }
+
+    #[test]
+    fn extract_releases_dedupes_same_btih() {
+        // Same btih appearing in two chunks → only first kept.
+        let m = "magnet:?xt=urn:btih:dup\
+                 &dn=%5BOne+Pace%5D%5B1%5D+Romance+Dawn+01+%5B1080p%5D%5BAAAAAAAA%5D.mkv";
+        let len = format!("{:x}", m.len());
+        let rsc = format!("11:T{len},{m}aa:T{len},{m}");
+        let releases = extract_releases(&rsc);
+        assert_eq!(releases.len(), 1);
+    }
+
+    #[test]
+    fn extract_releases_skips_chunk_overflow() {
+        // Length claims more bytes than the input has.
+        let rsc = "11:Tffff,magnet:?xt=urn:btih:abc&dn=x";
+        let releases = extract_releases(rsc);
+        assert!(releases.is_empty());
+    }
+
+    #[test]
+    fn extract_releases_keeps_parseless_filename() {
+        // Magnet whose dn= doesn't match One Pace naming → kept with parsed=None.
+        let m = "magnet:?xt=urn:btih:abc&dn=random-filename.mkv";
+        let len = format!("{:x}", m.len());
+        let rsc = format!("11:T{len},{m}");
+        let releases = extract_releases(&rsc);
+        assert_eq!(releases.len(), 1);
+        assert!(releases[0].parsed.is_none());
+    }
+
+    #[test]
     fn build_timeline_skips_specials_and_numbers_sequentially() {
         let tl = build_timeline(vec![
             seg("Romance Dawn", false),
