@@ -132,6 +132,7 @@ pacefinder generate "/path/to/library/One Pace"
 | Command | Description |
 |---|---|
 | `generate <series-root>` | Fetch metadata and write NFOs + posters next to every recognized file. |
+| `download <series-root>` | Queue missing releases to qBittorrent. Per-arc `save_path`, optional `--prepopulate-nfo`. See [docs/download.md](docs/download.md). |
 | `scan <path>` | Walk the path and list recognized video files; useful diagnostic. |
 | `reorder <path>` | One-time setup: wrap top-level arc folders inside a series folder when your layout is flat. |
 | `cleanup <series-root>` | `rmdir` empty arc folders, write `.ignore` into folders with only foreign content. `--remove` undoes our `.ignore` writes. |
@@ -178,6 +179,8 @@ In Jellyfin, add `<jellyfin-library-root>/` as a TV Shows library with the
 
 - [docs/data-sources.md](docs/data-sources.md) — where metadata comes
   from, the source chain, arc-name aliases, adding a new source.
+- [docs/download.md](docs/download.md) — `download` subcommand details:
+  qBittorrent setup, save-path traps, `--prepopulate-nfo`, scope.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — Jellyfin
   metadata-refresh trap, ghost seasons, "nothing matched" debugging.
 - [docs/development.md](docs/development.md) — build, dev loop with the
