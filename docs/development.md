@@ -88,14 +88,16 @@ testlib/          (gitignored) sample One Pace media for local dev
 
 ## Releases
 
-Tag pushes (`v*.*.*`) trigger `.github/workflows/release.yml`, which
-cross-builds for Linux (x86_64 / aarch64 musl), macOS (Intel / Apple
-Silicon), and Windows (x86_64 MSVC), uploads each archive plus a sibling
-`.sha256`, and rewrites the release body with the install snippet from
-`.github/install-snippet.md`.
+Tag pushes (`v*.*.*`) trigger `.github/workflows/release.yml`, which:
 
-The install snippet is the single source of truth — duplicated (carefully)
-between that file and the README so the file can be rendered with the tag
-substituted at release time. Keep them in sync; markers in the README
-(`<!-- install-snippet:start -->` / `<!-- install-snippet:end -->`) call
-out the section to mirror.
+1. Rewrites `Cargo.toml`'s `version` from the tag (e.g. `v0.2.0` →
+   `0.2.0`) so the built binary's `--version` matches the release.
+2. Cross-builds for Linux (x86_64 / aarch64 musl), macOS (Intel / Apple
+   Silicon), and Windows (x86_64 MSVC) and uploads each archive plus a
+   sibling `.sha256`.
+3. Rewrites the release body with the install snippet from
+   `.github/install-snippet.md` (with `${TAG}` substituted).
+
+The README points users at the releases page rather than duplicating the
+install commands, so the install snippet only needs to be edited in one
+place.

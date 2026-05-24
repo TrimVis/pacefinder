@@ -20,115 +20,17 @@ Three things, one parser:
 
 ## Install
 
-<!-- install-snippet:start -->
-<!--
-The block between these markers is kept byte-identical to .github/install-snippet.md
-(the workflow uses that file to populate every release body). If you edit one,
-edit the other. `VERSION` below is what the workflow substitutes for `${TAG}`.
--->
-
-### Pre-built binaries
-
 Pre-built binaries for Linux, macOS, and Windows are attached to every
-[GitHub release](https://github.com/TrimVis/PaceFinder/releases). Default
-install destination is `~/.local/bin` (no `sudo` needed); make sure it's
-on your `PATH`.
+[GitHub release](https://github.com/TrimVis/PaceFinder/releases/latest) —
+each release body has copy-paste install commands for your platform plus
+checksum verification.
 
-**Linux / macOS — auto-detect OS and architecture:**
-
-```sh
-VERSION=v0.2.0
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64)   TARGET=x86_64-unknown-linux-musl ;;
-  Linux-aarch64)  TARGET=aarch64-unknown-linux-musl ;;
-  Darwin-arm64)   TARGET=aarch64-apple-darwin ;;
-  Darwin-x86_64)  TARGET=x86_64-apple-darwin ;;
-  *) echo "unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
-esac
-mkdir -p "$HOME/.local/bin"
-curl -fsSL "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/pacefinder-${TARGET}.tar.gz" \
-  | tar -xz -C "$HOME/.local/bin" pacefinder
-chmod +x "$HOME/.local/bin/pacefinder"
-pacefinder version
-```
-
-<details>
-<summary>Per-platform commands (Linux x86_64 / aarch64, macOS Intel / Apple Silicon, Windows)</summary>
-
-**Linux (x86_64, musl static):**
-
-```sh
-VERSION=v0.2.0
-curl -fsSL "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/pacefinder-x86_64-unknown-linux-musl.tar.gz" \
-  | tar -xz -C "$HOME/.local/bin" pacefinder
-chmod +x "$HOME/.local/bin/pacefinder"
-```
-
-**Linux (aarch64, musl static):**
-
-```sh
-VERSION=v0.2.0
-curl -fsSL "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/pacefinder-aarch64-unknown-linux-musl.tar.gz" \
-  | tar -xz -C "$HOME/.local/bin" pacefinder
-chmod +x "$HOME/.local/bin/pacefinder"
-```
-
-**macOS (Apple Silicon):**
-
-```sh
-VERSION=v0.2.0
-curl -fsSL "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/pacefinder-aarch64-apple-darwin.tar.gz" \
-  | tar -xz -C "$HOME/.local/bin" pacefinder
-chmod +x "$HOME/.local/bin/pacefinder"
-```
-
-**macOS (Intel):**
-
-```sh
-VERSION=v0.2.0
-curl -fsSL "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/pacefinder-x86_64-apple-darwin.tar.gz" \
-  | tar -xz -C "$HOME/.local/bin" pacefinder
-chmod +x "$HOME/.local/bin/pacefinder"
-```
-
-**Windows (x86_64, PowerShell):**
-
-```powershell
-$Version = "v0.2.0"
-$Dest = "$HOME\bin"
-New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-Invoke-WebRequest -Uri "https://github.com/TrimVis/PaceFinder/releases/download/$Version/pacefinder-x86_64-pc-windows-msvc.zip" -OutFile "$env:TEMP\pacefinder.zip"
-Expand-Archive -Force "$env:TEMP\pacefinder.zip" -DestinationPath $Dest
-# Add $Dest to your PATH if it isn't already
-& "$Dest\pacefinder.exe" version
-```
-
-</details>
-
-<details>
-<summary>Verifying checksums</summary>
-
-Each archive ships with a sibling `.sha256` file. Verify before installing:
-
-```sh
-VERSION=v0.2.0
-ARCHIVE=pacefinder-x86_64-unknown-linux-musl.tar.gz
-curl -fsSLO "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/${ARCHIVE}"
-curl -fsSLO "https://github.com/TrimVis/PaceFinder/releases/download/${VERSION}/${ARCHIVE}.sha256"
-sha256sum -c "${ARCHIVE}.sha256"
-```
-
-</details>
-<!-- install-snippet:end -->
-
-### From crates.io / source
+From source (requires Rust stable 1.85+; `rustup` picks the right channel
+from `rust-toolchain.toml`):
 
 ```sh
 cargo install --path .   # from a cloned checkout
 ```
-
-Requires Rust stable 1.85+ (for edition 2024). `rustup` picks the right
-channel up from `rust-toolchain.toml` automatically.
 
 ## Quick start
 
@@ -149,7 +51,7 @@ PACEFINDER_QBT_PASS=hunter2 pacefinder download "/path/to/library/One Pace"
 | `download <series-root>` | Queue missing releases to qBittorrent. Per-arc `save_path`, optional `--prepopulate-nfo`. See [docs/download.md](docs/download.md). |
 | `scan <path>` | List recognized video files. Useful diagnostic. |
 | `reorder <path>` | One-time setup: wrap top-level arc folders inside a series folder when your layout is flat. |
-| `cleanup <series-root>` | `rmdir` empty arc folders, write `.ignore` into folders with only foreign content. `--remove` undoes our `.ignore` writes. |
+| `cleanup <series-root>` | `rmdir` empty arc folders, write `.ignore` into folders with only foreign content. `--remove` undoes our `.ignore` writes; `--migrate-extended-folders` and `--remove-superseded` handle Extended-cut layout. |
 | `cache path` / `cache clear` | Show where cached upstream responses live, or wipe them. |
 | `version` | Print version. |
 

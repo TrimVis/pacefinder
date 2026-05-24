@@ -1,18 +1,10 @@
 <!--
 Canonical install snippet for PaceFinder pre-built binaries.
 
-Single source of truth for:
-  - The "Pre-built binaries" subsection of README.md (## Install)
-  - The auto-generated release body produced by .github/workflows/release.yml
-
-If you edit one, edit the other (keep them byte-identical between the
-`<!-- install-snippet:start --` and `<!-- install-snippet:end --` markers
-in README.md). The release workflow uploads this file verbatim as the
-release body using `gh release edit --notes-file`.
-
-`${TAG}` is substituted by the workflow at release time. In README.md the
-snippet uses a literal `vX.Y.Z` so users can swap in any version (or use
-the `/releases/latest/download/` redirect).
+The release workflow (.github/workflows/release.yml) substitutes `${TAG}`
+and uploads this file verbatim as the release body via
+`gh release edit --notes-file`. README.md just links to the releases page
+rather than duplicating these instructions.
 -->
 
 ### Pre-built binaries

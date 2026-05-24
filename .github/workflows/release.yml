@@ -27,6 +27,23 @@ jobs:
             os: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set Cargo.toml version from tag
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          python - "$VERSION" <<'PY'
+          import re, pathlib, sys
+          version = sys.argv[1]
+          path = pathlib.Path("Cargo.toml")
+          text = path.read_text()
+          new = re.sub(r'^version = ".*"', f'version = "{version}"', text, count=1, flags=re.M)
+          if new == text:
+              raise SystemExit("Cargo.toml version line not found")
+          path.write_text(new)
+          PY
+          grep -m1 '^version' Cargo.toml
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: pacefinder
@@ -38,8 +55,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   # Write the install instructions into the release body after all platform
-  # builds have uploaded their archives. Single source of truth lives in
-  # .github/install-snippet.md (also embedded in README.md).
+  # builds have uploaded their archives. Lives in .github/install-snippet.md;
+  # README just links to the releases page rather than duplicating it.
   release-notes:
     name: Update release notes
     needs: build
