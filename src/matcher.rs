@@ -12,6 +12,10 @@ pub struct ParsedFile {
     pub arc: String,
     pub episode: u32,
     pub crc32: Option<String>,
+    /// Raw resolution token from the filename, e.g. "1080p", "720p",
+    /// "480p", "640x480 x265 AAC". Used by the `download` subcommand to
+    /// pick the best release ≤ user's max.
+    pub resolution: Option<String>,
 }
 
 /// True if `name` looks like an arc folder: `[One Pace][<range>] <Arc> [<res>]`.
@@ -49,7 +53,7 @@ static FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
         \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
         \s+(?P<ep>\d+)
-        \s+\[[^\]]+\]
+        \s+\[(?P<res>[^\]]+)\]
         (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.[A-Za-z0-9]+$
         "
@@ -66,7 +70,7 @@ static FILE_RE_SINGLE: LazyLock<Regex> = LazyLock::new(|| {
         ^\[One\ Pace\]
         \[{RANGE_BODY}\]
         \s+(?P<arc>.+?)
-        \s+\[[^\]]+\]
+        \s+\[(?P<res>[^\]]+)\]
         (?:\[(?P<crc>[0-9A-Fa-f]{{8}})\])?
         \.[A-Za-z0-9]+$
         "
@@ -86,6 +90,7 @@ impl ParsedFile {
                 arc: caps["arc"].trim().to_string(),
                 episode: caps["ep"].parse().ok()?,
                 crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
+                resolution: caps.name("res").map(|m| m.as_str().to_string()),
             });
         }
         let caps = FILE_RE_SINGLE.captures(name)?;
@@ -93,6 +98,7 @@ impl ParsedFile {
             arc: caps["arc"].trim().to_string(),
             episode: 1,
             crc32: caps.name("crc").map(|m| m.as_str().to_ascii_uppercase()),
+            resolution: caps.name("res").map(|m| m.as_str().to_string()),
         })
     }
 }
