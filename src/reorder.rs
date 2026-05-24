@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use crate::fs_util::canonicalize_root;
+use crate::fs_util::{canonicalize_root, safe_rename};
 use crate::matcher::{ParsedFile, is_arc_folder_name};
 
 pub struct Options {
@@ -75,19 +75,11 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     for source in &to_move {
         let name = source.file_name().expect("dir entry has name");
         let dest = target.join(name);
-        if dest.exists() {
-            warn!(source = %source.display(), dest = %dest.display(), "destination exists, skipping");
-            skipped += 1;
-            continue;
-        }
-        if opts.dry_run {
-            info!(would_move = %source.display(), to = %dest.display(), "[dry-run]");
+        if safe_rename(source, &dest, opts.dry_run)? {
+            moved += 1;
         } else {
-            fs::rename(source, &dest)
-                .with_context(|| format!("moving {} -> {}", source.display(), dest.display()))?;
-            info!(from = %source.display(), to = %dest.display(), "moved");
+            skipped += 1;
         }
-        moved += 1;
     }
 
     info!(moved, skipped, total = to_move.len(), "reorder complete");

@@ -66,7 +66,7 @@ impl OnepaceNet {
         let segments = extract_segments(&body)?;
         let tl = Rc::new(build_timeline(segments));
         let _ = self.timeline.set(Rc::clone(&tl));
-        Ok(Rc::clone(self.timeline.get().expect("just set")))
+        Ok(tl)
     }
 
     /// Fetch the `/releases` RSC payload and pull out every release entry.

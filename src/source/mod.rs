@@ -8,6 +8,7 @@
 use anyhow::Result;
 use std::rc::Rc;
 
+use crate::matcher::{ParsedFile, normalize_arc};
 use crate::model::{Episode, Season, Series};
 
 pub mod cache;
@@ -15,6 +16,18 @@ pub mod composite;
 pub mod onepacenet;
 pub mod sheet;
 pub mod spykernz;
+
+/// Canonical (arc_normalized, episode) for a parsed file, preferring the
+/// source chain's CRC oracle (the Google Sheet today) when the filename
+/// carries a CRC and the oracle answers. Falls back to the filename's own
+/// arc + episode, normalized.
+pub fn identify_or_fallback(source: &dyn DataSource, parsed: &ParsedFile) -> (String, u32) {
+    parsed
+        .crc32
+        .as_deref()
+        .and_then(|crc| source.identify_by_crc(crc).ok().flatten())
+        .unwrap_or_else(|| (normalize_arc(&parsed.arc), parsed.episode))
+}
 
 /// Default composite of upstreams. Order:
 /// - onepace.net first — current arc list + fresh season descriptions

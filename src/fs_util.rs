@@ -1,6 +1,8 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use tracing::{info, warn};
 
 /// Canonicalize a user-supplied library path with a friendlier error than
 /// std's default. NotFound becomes a path-shaped message instead of the
@@ -13,6 +15,24 @@ pub fn canonicalize_root(root: &Path) -> Result<PathBuf> {
             anyhow!("{}: {}", root.display(), e)
         }
     })
+}
+
+/// Move `src` to `dst`, logging the result. Returns `true` if a move was
+/// attempted (real or dry-run); `false` and warns when the destination
+/// already exists so callers can keep counters straight.
+pub fn safe_rename(src: &Path, dst: &Path, dry_run: bool) -> Result<bool> {
+    if dst.exists() {
+        warn!(src = %src.display(), dst = %dst.display(), "destination exists; skipping");
+        return Ok(false);
+    }
+    if dry_run {
+        info!(would_move = %src.display(), to = %dst.display(), "[dry-run]");
+    } else {
+        fs::rename(src, dst)
+            .with_context(|| format!("moving {} → {}", src.display(), dst.display()))?;
+        info!(moved = %src.display(), to = %dst.display(), "moved");
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

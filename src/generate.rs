@@ -22,7 +22,7 @@ use crate::matcher::{ParsedFile, is_arc_folder_name, normalize_arc};
 use crate::nfo::writer::{self, MarkerStatus};
 use crate::scan::is_video;
 use crate::source::cache::CachedHttp;
-use crate::source::{DataSource, ImageKind, default_chain};
+use crate::source::{DataSource, ImageKind, default_chain, identify_or_fallback};
 
 const SAMPLE_EXPECTED_FILENAME: &str = "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv";
 
@@ -272,14 +272,7 @@ fn plan_episode_assets(
     let total = winners.len();
 
     for (i, (media_path, parsed)) in winners.iter().enumerate() {
-        // Prefer CRC-based identification (Google Sheet) when the filename
-        // has a CRC — that's the canonical (arc, episode) for the exact
-        // file. Fall back to filename-derived arc + episode otherwise.
-        let (arc_norm, episode_number) = parsed
-            .crc32
-            .as_deref()
-            .and_then(|crc| source.identify_by_crc(crc).ok().flatten())
-            .unwrap_or_else(|| (normalize_arc(&parsed.arc), parsed.episode));
+        let (arc_norm, episode_number) = identify_or_fallback(source, parsed);
 
         // Per-episode errors are logged and skipped, not propagated — a
         // flaky upstream shouldn't poison the whole library refresh.

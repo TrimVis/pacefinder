@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
-use crate::fs_util::canonicalize_root;
+use crate::fs_util::{canonicalize_root, safe_rename};
 use crate::matcher::{
     ParsedFile, arc_from_folder_name, extended_folder_arc_ep, is_arc_folder_name, normalize_arc,
 };
@@ -232,18 +232,9 @@ fn migrate_one_extended_folder(pseudo: &Path, parent_arc: &Path, dry_run: bool) 
             continue;
         };
         let dst = parent_arc.join(name);
-        if dst.exists() {
-            warn!(dst = %dst.display(), src = %src.display(), "destination exists; skipping");
-            continue;
+        if safe_rename(src, &dst, dry_run)? {
+            moved_any = true;
         }
-        if dry_run {
-            info!(would_move = %src.display(), to = %dst.display(), "[dry-run]");
-        } else {
-            fs::rename(src, &dst)
-                .with_context(|| format!("moving {} → {}", src.display(), dst.display()))?;
-            info!(moved = %src.display(), to = %dst.display(), "moved file");
-        }
-        moved_any = true;
     }
     if dry_run {
         info!(would_rmdir = %pseudo.display(), "[dry-run]");
@@ -279,6 +270,13 @@ fn run_remove_superseded(root: &Path, dry_run: bool) -> Result<()> {
     let replaced_dir = root.join(REPLACED_DIRNAME);
     let mut moved = 0usize;
     let mut errored = 0usize;
+    let needs_replaced_dir = slots.values().any(|files| {
+        files.iter().any(|(_, p)| p.extended) && files.iter().any(|(_, p)| !p.extended)
+    });
+    if !dry_run && needs_replaced_dir {
+        fs::create_dir_all(&replaced_dir)
+            .with_context(|| format!("creating {}", replaced_dir.display()))?;
+    }
     for files in slots.values() {
         let has_ext = files.iter().any(|(_, p)| p.extended);
         let has_reg = files.iter().any(|(_, p)| !p.extended);
@@ -287,14 +285,6 @@ fn run_remove_superseded(root: &Path, dry_run: bool) -> Result<()> {
         }
         for (path, parsed) in files {
             if parsed.extended {
-                continue;
-            }
-            if !dry_run
-                && !replaced_dir.exists()
-                && let Err(e) = fs::create_dir_all(&replaced_dir)
-            {
-                warn!(error = %e, "failed creating {}", replaced_dir.display());
-                errored += 1;
                 continue;
             }
             match move_to_replaced(path, &replaced_dir, dry_run) {
@@ -318,32 +308,13 @@ fn run_remove_superseded(root: &Path, dry_run: bool) -> Result<()> {
 
 fn move_to_replaced(src: &Path, replaced_dir: &Path, dry_run: bool) -> Result<()> {
     let name = src.file_name().context("source has no filename")?;
-    let dst = replaced_dir.join(name);
-    if dst.exists() {
-        warn!(dst = %dst.display(), src = %src.display(), "destination exists; skipping");
-        return Ok(());
-    }
-    if dry_run {
-        info!(would_move = %src.display(), to = %dst.display(), "[dry-run]");
-    } else {
-        fs::rename(src, &dst)
-            .with_context(|| format!("moving {} → {}", src.display(), dst.display()))?;
-        info!(moved = %src.display(), to = %dst.display(), "moved superseded file");
-    }
+    safe_rename(src, &replaced_dir.join(name), dry_run)?;
     // Move sidecar .nfo too if present.
     let nfo = src.with_extension("nfo");
     if nfo.exists()
         && let Some(nfo_name) = nfo.file_name()
     {
-        let nfo_dst = replaced_dir.join(nfo_name);
-        if !nfo_dst.exists() {
-            if dry_run {
-                info!(would_move = %nfo.display(), to = %nfo_dst.display(), "[dry-run]");
-            } else {
-                fs::rename(&nfo, &nfo_dst)
-                    .with_context(|| format!("moving {} → {}", nfo.display(), nfo_dst.display()))?;
-            }
-        }
+        safe_rename(&nfo, &replaced_dir.join(nfo_name), dry_run)?;
     }
     Ok(())
 }

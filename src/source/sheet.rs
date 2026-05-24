@@ -65,7 +65,7 @@ impl GoogleSheet {
         }
         let idx = Rc::new(self.build_index()?);
         let _ = self.index.set(Rc::clone(&idx));
-        Ok(Rc::clone(self.index.get().expect("just set")))
+        Ok(idx)
     }
 
     fn build_index(&self) -> Result<SheetIndex> {

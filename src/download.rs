@@ -15,10 +15,9 @@ use crate::fs_util::canonicalize_root;
 use crate::matcher::{ParsedFile, arc_from_folder_name, normalize_arc};
 use crate::nfo::writer;
 use crate::scan::is_video;
-use crate::source::DataSource;
 use crate::source::cache::CachedHttp;
-use crate::source::default_chain;
 use crate::source::onepacenet::OnepaceNet;
+use crate::source::{DataSource, default_chain, identify_or_fallback};
 
 pub struct Options {
     pub qbt_url: String,
@@ -417,12 +416,7 @@ fn prepopulate_one(
     filename: &str,
     dry_run: bool,
 ) -> Result<()> {
-    let arc_norm = normalize_arc(&parsed.arc);
-    let (arc_norm, episode_number) = parsed
-        .crc32
-        .as_deref()
-        .and_then(|crc| source.identify_by_crc(crc).ok().flatten())
-        .unwrap_or((arc_norm, parsed.episode));
+    let (arc_norm, episode_number) = identify_or_fallback(source, parsed);
 
     let Some(episode) = source
         .episode(&arc_norm, episode_number)
