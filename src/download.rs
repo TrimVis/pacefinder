@@ -195,8 +195,9 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
         // Figure out the arc folder we'd want the torrent to land in.
         let arc_folder = find_or_propose_arc_folder(&root, &parsed.arc);
         let save_path_host = root.join(&arc_folder);
-        // Translate to qBittorrent's view if a mapping was configured.
-        // `validate_*` above guarantees the prefix matches.
+        // Translate to qBittorrent's view if a mapping was configured. The
+        // startup `bail!` above guarantees the host prefix is a parent of
+        // root, so translate cannot return None here under normal use.
         let save_path = match &path_map {
             Some(m) => m.translate(&save_path_host).ok_or_else(|| {
                 anyhow!(

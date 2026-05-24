@@ -25,7 +25,9 @@ use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::fs_util::canonicalize_root;
-use crate::matcher::{ParsedFile, extended_folder_arc_ep, is_arc_folder_name, normalize_arc};
+use crate::matcher::{
+    ParsedFile, arc_from_folder_name, extended_folder_arc_ep, is_arc_folder_name, normalize_arc,
+};
 use crate::nfo::writer::{self, MarkerStatus};
 use crate::scan::is_video;
 
@@ -209,10 +211,9 @@ fn list_arc_folders(root: &Path) -> Result<HashMap<String, PathBuf>> {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if !is_arc_folder_name(name) {
-            continue;
-        }
-        if let Some(arc) = crate::matcher::arc_from_folder_name(name) {
+        // arc_from_folder_name returns None for non-arc shapes, so it
+        // doubles as both the recognizer and the name extractor.
+        if let Some(arc) = arc_from_folder_name(name) {
             out.insert(normalize_arc(&arc), path);
         }
     }

@@ -436,7 +436,7 @@ fn classify(p: &PendingWrite) -> WriteStatus {
             return WriteStatus::Fresh;
         }
         let same = match fs::read(&p.path) {
-            Ok(existing) => bytes_sha256(&existing) == bytes_sha256(new_bytes),
+            Ok(existing) => Sha256::digest(&existing) == Sha256::digest(new_bytes),
             Err(_) => false,
         };
         return if same {
@@ -453,10 +453,6 @@ fn classify(p: &PendingWrite) -> WriteStatus {
         MarkerStatus::EditedOurs => WriteStatus::UserEdited,
         MarkerStatus::Absent => WriteStatus::ForeignNfo,
     }
-}
-
-fn bytes_sha256(bytes: &[u8]) -> Vec<u8> {
-    Sha256::digest(bytes).to_vec()
 }
 
 struct ApplySummary {

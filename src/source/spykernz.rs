@@ -193,17 +193,17 @@ impl DataSource for SpykerNz {
 // ---------- index ----------
 
 #[derive(Debug, Default, Clone)]
-pub struct Index {
-    pub series_nfo: Option<String>,
-    pub series_poster: Option<String>,
-    pub seasons: HashMap<u32, SeasonEntry>,
+struct Index {
+    series_nfo: Option<String>,
+    series_poster: Option<String>,
+    seasons: HashMap<u32, SeasonEntry>,
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct SeasonEntry {
-    pub season_nfo: Option<String>,
-    pub season_poster: Option<String>,
-    pub episodes: HashMap<u32, String>,
+struct SeasonEntry {
+    season_nfo: Option<String>,
+    season_poster: Option<String>,
+    episodes: HashMap<u32, String>,
 }
 
 #[derive(Debug, Deserialize)]

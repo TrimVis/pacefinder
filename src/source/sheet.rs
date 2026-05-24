@@ -6,7 +6,7 @@
 //! 1. As a `DataSource`, synthesizing minimal `Episode` records from the
 //!    chapter / anime-episode / release-date columns when no richer source
 //!    (SpykerNZ, onepace.net) has data for that arc.
-//! 2. As a CRC-to-(arc, episode) oracle via [`GoogleSheet::lookup_arc_ep_by_crc`].
+//! 2. As a CRC-to-(arc, episode) oracle via `DataSource::identify_by_crc`.
 //!    The `generate` command uses this to override filename-derived arc and
 //!    episode numbers with whatever the sheet says — useful when a release
 //!    has been re-cut and the CRC moves to a different slot.
@@ -50,7 +50,7 @@ impl GoogleSheet {
     /// Returns `(normalized_arc_name, episode_number_within_arc)` if `crc`
     /// (uppercase hex) appears in any per-arc tab's `MKV CRC32` or
     /// `MKV CRC32 (Extended)` column.
-    pub fn lookup_arc_ep_by_crc(&self, crc: &str) -> Result<Option<(String, u32)>> {
+    fn lookup_arc_ep_by_crc(&self, crc: &str) -> Result<Option<(String, u32)>> {
         let index = self.ensure_index()?;
         let key = crc.to_ascii_uppercase();
         Ok(index
@@ -170,7 +170,6 @@ impl SheetIndex {
             let entry = SheetEpisode {
                 arc: row.arc.clone(),
                 arc_normalized: normalize_arc(&row.arc),
-                episode_label: row.episode_label,
                 episode_number: row.episode_number,
                 chapters: row.chapters,
                 anime_episodes: row.anime_episodes,
@@ -200,8 +199,6 @@ struct SheetEpisode {
     /// synthesized episode titles with proper capitalization.
     arc: String,
     arc_normalized: String,
-    #[allow(dead_code)]
-    episode_label: String,
     episode_number: u32,
     chapters: String,
     anime_episodes: String,
@@ -212,7 +209,6 @@ struct SheetEpisode {
 #[derive(Debug)]
 struct ParsedRow {
     arc: String,
-    episode_label: String,
     episode_number: u32,
     chapters: String,
     anime_episodes: String,
@@ -329,7 +325,6 @@ fn parse_arc_tab(body: &str) -> Result<Vec<ParsedRow>> {
 
         out.push(ParsedRow {
             arc,
-            episode_label: label,
             episode_number,
             chapters,
             anime_episodes,
@@ -493,7 +488,6 @@ mod tests {
 
         let r0 = &rows[0];
         assert_eq!(r0.arc, "Skypiea");
-        assert_eq!(r0.episode_label, "Skypiea 01");
         assert_eq!(r0.episode_number, 1);
         assert_eq!(r0.chapters, "Ch. 237-238");
         assert_eq!(r0.anime_episodes, "Ep. 153");
