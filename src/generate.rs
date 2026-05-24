@@ -5,7 +5,7 @@
 //! classify each one against the existing filesystem, then apply per
 //! `--force` / `--non-interactive` / interactive prompt.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
@@ -17,15 +17,12 @@ use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::cli::LockMode;
+use crate::fs_util::canonicalize_root;
 use crate::matcher::{ParsedFile, is_arc_folder_name, normalize_arc};
 use crate::nfo::writer::{self, MarkerStatus};
 use crate::scan::is_video;
 use crate::source::cache::CachedHttp;
-use crate::source::composite::Composite;
-use crate::source::onepacenet::OnepaceNet;
-use crate::source::sheet::GoogleSheet;
-use crate::source::spykernz::SpykerNz;
-use crate::source::{DataSource, ImageKind};
+use crate::source::{DataSource, ImageKind, default_chain};
 
 const SAMPLE_EXPECTED_FILENAME: &str = "[One Pace][1] Romance Dawn 01 [1080p][D767799C].mkv";
 
@@ -48,12 +45,13 @@ pub struct Options {
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
-    let root = canonicalize_or_helpful_error(root)?;
+    let root = canonicalize_root(root)?;
     info!(path = %root.display(), dry_run = opts.dry_run, "generating NFOs");
 
     warn_if_layout_looks_wrong(&root);
 
-    let source = build_source(opts.cache_ttl, opts.refresh)?;
+    let http = Rc::new(CachedHttp::new(opts.cache_ttl)?.refresh(opts.refresh));
+    let source = default_chain(http);
 
     let scan = collect_matched(&root);
     info!(count = scan.matched.len(), "matched episode files");
@@ -99,18 +97,6 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     Ok(())
 }
 
-// ---------- helpers ----------
-
-fn canonicalize_or_helpful_error(root: &Path) -> Result<PathBuf> {
-    root.canonicalize().map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            anyhow!("path does not exist: {}", root.display())
-        } else {
-            anyhow!("{}: {}", root.display(), e)
-        }
-    })
-}
-
 fn warn_if_layout_looks_wrong(root: &Path) {
     let name = root
         .file_name()
@@ -140,20 +126,6 @@ fn warn_if_layout_looks_wrong(root: &Path) {
             root.display()
         );
     }
-}
-
-fn build_source(cache_ttl: Duration, refresh: bool) -> Result<Rc<dyn DataSource>> {
-    let http = Rc::new(CachedHttp::new(cache_ttl)?.refresh(refresh));
-    // Order:
-    //   - onepace.net first  — current arc list + fresh season descriptions
-    //   - SpykerNZ second    — rich episode titles/plots + series + posters
-    //   - GoogleSheet third  — CRC-keyed file identification + synthesized
-    //                          episode fallback for arcs SpykerNZ doesn't cover
-    Ok(Rc::new(Composite::new(vec![
-        Rc::new(OnepaceNet::new(http.clone())),
-        Rc::new(SpykerNz::new(http.clone())),
-        Rc::new(GoogleSheet::new(http)),
-    ])))
 }
 
 // ---------- scan ----------

@@ -5,12 +5,12 @@
 //! flagged but not moved; reconstructing their arc-folder name requires
 //! inspecting every episode's chapter range and is left for a later pass.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
+use crate::fs_util::canonicalize_root;
 use crate::matcher::{ParsedFile, is_arc_folder_name};
 
 pub struct Options {
@@ -19,13 +19,7 @@ pub struct Options {
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
-    let root = root.canonicalize().map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            anyhow!("path does not exist: {}", root.display())
-        } else {
-            anyhow!("{}: {}", root.display(), e)
-        }
-    })?;
+    let root = canonicalize_root(root)?;
     let target = root.join(&opts.series_folder);
     info!(
         path = %root.display(),

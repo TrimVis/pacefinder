@@ -1,19 +1,14 @@
-use anyhow::{Context, Result, anyhow};
-use std::io;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tracing::debug;
 use walkdir::WalkDir;
 
+use crate::fs_util::canonicalize_root;
+
 pub(crate) const VIDEO_EXTS: &[&str] = &["mkv", "mp4", "m4v", "avi"];
 
 pub fn run(root: &Path) -> Result<()> {
-    let root = root.canonicalize().map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            anyhow!("path does not exist: {}", root.display())
-        } else {
-            anyhow!("{}: {}", root.display(), e)
-        }
-    })?;
+    let root = canonicalize_root(root)?;
     debug!(path = %root.display(), "scanning library");
 
     let mut found: Vec<PathBuf> = Vec::new();

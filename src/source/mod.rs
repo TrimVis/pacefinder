@@ -6,6 +6,7 @@
 //! in this module or in external crates that implement the trait.
 
 use anyhow::Result;
+use std::rc::Rc;
 
 use crate::model::{Episode, Season, Series};
 
@@ -14,6 +15,19 @@ pub mod composite;
 pub mod onepacenet;
 pub mod sheet;
 pub mod spykernz;
+
+/// Default composite of upstreams. Order:
+/// - onepace.net first — current arc list + fresh season descriptions
+/// - SpykerNZ second — rich episode titles/plots + series + posters
+/// - GoogleSheet third — CRC-keyed file identification + synthesized
+///   episode fallback for arcs SpykerNZ doesn't cover
+pub fn default_chain(http: Rc<cache::CachedHttp>) -> Rc<dyn DataSource> {
+    Rc::new(composite::Composite::new(vec![
+        Rc::new(onepacenet::OnepaceNet::new(http.clone())),
+        Rc::new(spykernz::SpykerNz::new(http.clone())),
+        Rc::new(sheet::GoogleSheet::new(http)),
+    ]))
+}
 
 /// Which on-disk image kind the caller wants. Lives next to the trait that
 /// dispatches on it rather than in `model` — it's an adapter selector, not

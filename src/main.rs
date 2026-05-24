@@ -2,6 +2,7 @@ mod cleanup;
 mod cli;
 mod dl;
 mod download;
+mod fs_util;
 mod generate;
 mod matcher;
 mod model;

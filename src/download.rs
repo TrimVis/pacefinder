@@ -19,7 +19,6 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -28,15 +27,14 @@ use walkdir::WalkDir;
 
 use crate::dl::Release;
 use crate::dl::qbittorrent::QbtClient;
+use crate::fs_util::canonicalize_root;
 use crate::matcher::{ParsedFile, normalize_arc};
 use crate::nfo::writer;
 use crate::scan::is_video;
 use crate::source::DataSource;
 use crate::source::cache::CachedHttp;
-use crate::source::composite::Composite;
+use crate::source::default_chain;
 use crate::source::onepacenet::OnepaceNet;
-use crate::source::sheet::GoogleSheet;
-use crate::source::spykernz::SpykerNz;
 
 pub struct Options {
     pub qbt_url: String,
@@ -97,7 +95,7 @@ impl PathMap {
 }
 
 pub fn run(root: &Path, opts: Options) -> Result<()> {
-    let root = canonicalize_or_helpful_error(root)?;
+    let root = canonicalize_root(root)?;
     info!(
         path = %root.display(),
         resolution = %opts.resolution,
@@ -175,7 +173,7 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
 
     // 6 + 7. Queue each missing release; optionally pre-write NFO.
     let source = if opts.prepopulate_nfo {
-        Some(build_metadata_source(http.clone()))
+        Some(default_chain(http.clone()))
     } else {
         None
     };
@@ -279,32 +277,12 @@ pub fn run(root: &Path, opts: Options) -> Result<()> {
     Ok(())
 }
 
-// ---------- helpers ----------
-
-fn canonicalize_or_helpful_error(root: &Path) -> Result<PathBuf> {
-    root.canonicalize().map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            anyhow!("path does not exist: {}", root.display())
-        } else {
-            anyhow!("{}: {}", root.display(), e)
-        }
-    })
-}
-
 fn parse_resolution_cap(s: &str) -> Result<u32> {
     // Accept "1080p" / "1080" / "720p" etc.
     let trimmed = s.trim().trim_end_matches('p');
     trimmed
         .parse::<u32>()
         .with_context(|| format!("invalid --resolution {s:?}: expected `1080p`, `720p`, …"))
-}
-
-fn build_metadata_source(http: Rc<CachedHttp>) -> Rc<dyn DataSource> {
-    Rc::new(Composite::new(vec![
-        Rc::new(OnepaceNet::new(http.clone())),
-        Rc::new(SpykerNz::new(http.clone())),
-        Rc::new(GoogleSheet::new(http)),
-    ]))
 }
 
 #[derive(Default)]
